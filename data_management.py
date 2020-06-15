@@ -410,8 +410,6 @@ class DataManager():
 				'y_train': y_training,
 				'y_test': y_validation}
 
-		x_validation.to_csv('tester.csv')
-
 		return data_container
 
 	def get_train_iterator(self, batch_size):
