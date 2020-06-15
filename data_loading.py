@@ -5,26 +5,24 @@ import pandas as pd
 
 class load_data():
 
-	def __init__(self, path_to_files, out_path):
+	def __init__(self, read_path, write_path):
 
-		self.path_to_files = path_to_files
-		self.out_path = out_path
+		self.read_path = read_path
+		self.write_path = write_path
 		self.build_patient_matrix()
 
 	def build_patient_matrix(self):
 
 		remove_nans_from_codes = True
 
-
-
-		patient_table = pd.read_csv(self.path_to_files + 'patient.csv')
+		patient_table = pd.read_csv(self.read_path + 'patient.csv')
 		patient_table = patient_table.loc[patient_table['age'] != 'NaN']
 		patient_table = patient_table.loc[patient_table['age'] != 'nan']
 		print('\n\n\n**************\npatient_table loaded successfully:\n**************\n', patient_table.nunique())
-		medication_table = pd.read_csv(self.path_to_files + 'medication.csv')
+		medication_table = pd.read_csv(self.read_path + 'medication.csv')
 		medication_table = medication_table.loc[medication_table['drugordercancelled'] == 'No']
 		print('\n\n\n**************\nmedication_table loaded successfully:\n**************\n', medication_table.nunique())
-		diagnosis_table = pd.read_csv(self.path_to_files + 'diagnosis.csv')
+		diagnosis_table = pd.read_csv(self.read_path + 'diagnosis.csv')
 		print('\n\n\n**************\ndiagnosis_table loaded successfully:\n**************\n', diagnosis_table.nunique())
 
 		patientIDs = patient_table['uniquepid'].unique()
@@ -33,7 +31,7 @@ class load_data():
 		corr_id_df = []
 
 		# for i in range(len(patientIDs)):
-		for i in range(200):
+		for i in range(10000):
 
 			if i % 1000 == 0:
 				print('\nrunning patient_id ' + str(i))
@@ -147,7 +145,7 @@ class load_data():
 		
 		corr_id_df = pd.DataFrame(corr_id_df)
 
-		corr_id_df.to_csv(self.out_path)
+		corr_id_df.to_csv(self.write_path)
 
 		print('\n\n\n')
 		print(corr_id_df)
@@ -155,7 +153,7 @@ class load_data():
 
 
 		# self.all_files = []
-		# for dummyfile in os.listdir(path_to_files):
+		# for dummyfile in os.listdir(read_path):
 		# 	if dummyfile.endswith(".csv"):
 		# 		self.all_files.append(dummyfile)
 
@@ -165,9 +163,12 @@ class load_data():
 
 class process_data():
 
-	def __init__(self, mypath):
+	def __init__(self, read_path, write_path):
 
-		self.dataframe = pd.read_csv(mypath).drop(columns='Unnamed: 0')
+		self.read_path = read_path
+		self.write_path = write_path
+
+		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 
 		categorical_feature_names = [
 			'gender',
@@ -205,7 +206,7 @@ class process_data():
 		
 		self.df_onehot.drop(columns=array_features_unused)
 
-		self.df_onehot.to_csv(self.out_path)
+		self.df_onehot.to_csv(self.write_path)
 
 
 		print('\n\n\n')
