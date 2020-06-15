@@ -92,19 +92,19 @@ class Classifier():
 			max_features='auto', 
 			n_jobs=-1)
 		self.logistic_regression = LogisticRegression(max_iter=4000)
-		self.ada_boost = AdaBoostClassifier(n_estimators=128)
+		self.ada_boost = AdaBoostClassifier(n_estimators=256)
 		self.gradient_boost = GradientBoostingClassifier(
-			n_estimators=128, 
+			n_estimators=256, 
 			tol=1e-5)
 		self.mlp_classifier = MLPClassifier(
-			hidden_layer_sizes=(512, 128), 
+			hidden_layer_sizes=(512, 256), 
 			activation='tanh', 
 			learning_rate='adaptive',
 			solver='adam',
 			max_iter=1000,
 			tol=1e-5,
 			verbose=False,
-			n_iter_no_change=100,
+			n_iter_no_change=50,
 			early_stopping=True,
 			validation_fraction=.3
 			)
@@ -262,19 +262,19 @@ class Regressor():
 			max_features='auto', 
 			n_jobs=-1)
 		self.decisiton_tree = DecisionTreeRegressor(criterion='mse')
-		self.ada_boost = AdaBoostRegressor(self.decisiton_tree, n_estimators=128)
+		self.ada_boost = AdaBoostRegressor(self.decisiton_tree, n_estimators=256)
 		self.gradient_boost = GradientBoostingRegressor(
-			n_estimators=128, 
+			n_estimators=256, 
 			tol=1e-5)
 		self.mlp_regressor = MLPRegressor(
-			hidden_layer_sizes=(512, 128), 
+			hidden_layer_sizes=(512, 256), 
 			activation='relu', 
 			solver='adam',
 			learning_rate='adaptive',
 			max_iter=1000,
 			tol=1e-5,
 			verbose=False,
-			n_iter_no_change=100,
+			n_iter_no_change=50,
 			early_stopping=True,
 			validation_fraction=.3
 			)
