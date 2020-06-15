@@ -350,7 +350,7 @@ class DataManager():
 	def __init__(self, process_data_path, target_features):
 
 		self.data_df = pd.read_csv(process_data_path).drop(columns='Unnamed: 0')
-		self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0.]
+		self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0]
 
 		self.target_features = target_features
 

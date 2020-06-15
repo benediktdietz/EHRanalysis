@@ -12,7 +12,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
-OUTPATH = '../results/test/'
+OUTPATH = '../results/test_20k/'
 print('\nwriting output results to ' + OUTPATH + '\n\n')
 
 class Embedding():
@@ -363,12 +363,15 @@ class Regressor():
 
 
 			plt.figure(figsize=(12,12))
-			plt.scatter(predictions, y_true, s=3)
-			plt.xlabel('predictions')
-			plt.ylabel('labels')
-			if self.target in ['unit_discharge_offset', 'hospital_discharge_offset']:
-				plt.xlim(0., 40000.)
-				plt.ylim(0., 40000.)
+			plt.scatter(predictions/(60*24), y_true/(60*24), s=3)
+			plt.xlabel('predictions [days]')
+			plt.ylabel('labels [days]')
+			if self.target == 'unit_discharge_offset':
+				plt.xlim(0., 20.)
+				plt.ylim(0., 20.)
+			if self.target == 'hospital_discharge_offset':
+				plt.xlim(0., 40.)
+				plt.ylim(0., 40.)
 			# plt.yscale('log')
 			# plt.xscale('log')
 			plt.grid()

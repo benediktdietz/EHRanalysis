@@ -6,7 +6,7 @@ eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
 # path to processed DataFrame (combination of patient.csv, diagnosis.csv, medication.csv)
 mydata_path = '../mydata/mydataframe_20k.csv'
 # path to encoded DataFrame (one-hot encoding, redundant features dropped)
-mydata_path_processed = '../mydata/mydataframe_processed_10k.csv'
+mydata_path_processed = '../mydata/mydataframe_processed_20k.csv'
 
 # # loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
 # eICU_DataLoader(eICU_path, mydata_path)
