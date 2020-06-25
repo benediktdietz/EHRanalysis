@@ -13,7 +13,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE, SpectralEmbedding, LocallyLinearEmbedding
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
-OUTPATH = '../results/test_new2/'
+OUTPATH = '../results/test_new/'
 print('\nwriting output results to ' + OUTPATH + '\n\n')
 
 class Embedding():
@@ -142,16 +142,16 @@ class Classifier():
 			alpha=0.0001, 
 			l1_ratio=0.15, 
 			fit_intercept=True, 
-			max_iter=1000)
+			max_iter=2000)
 		self.random_forest = RandomForestClassifier(
 			n_estimators=512, 
 			criterion='gini', 
 			max_features='auto', 
 			n_jobs=-1)
 		self.logistic_regression = LogisticRegression(max_iter=4000)
-		self.ada_boost = AdaBoostClassifier(n_estimators=256)
+		self.ada_boost = AdaBoostClassifier(n_estimators=512)
 		self.gradient_boost = GradientBoostingClassifier(
-			n_estimators=256, 
+			n_estimators=512, 
 			tol=1e-5)
 		self.knn_classifer = KNeighborsClassifier(
 			n_neighbors=3,
@@ -178,7 +178,7 @@ class Classifier():
 			self.logistic_regression,
 			self.ada_boost,
 			self.gradient_boost,
-			self.knn_classifer,
+			# self.knn_classifer,
 			# self.mlp_classifier,
 			]
 
@@ -188,7 +188,7 @@ class Classifier():
 			'Logistic Regression',
 			'AdaBoost',
 			'GradientBoost',
-			'K Nearest Neighbors',
+			# 'K Nearest Neighbors',
 			# 'MLP Classifier',
 			]
 
@@ -261,15 +261,15 @@ class Classifier():
 			num_true_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(1. - y_true))
 			num_false_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(y_true))
 
-			num_total_positives = np.sum(np.abs(y_true))
-			num_total_negatives = np.sum(np.abs(1. - y_true))
+			num_total_positives = num_true_positives + num_false_negatives
+			num_total_negatives = num_true_negatives + num_false_positives
 
 			num_total_positives_predicted = np.sum(np.abs(predictions_binary))
 
 			recall = num_true_positives / num_total_positives
 			selectivity = num_true_negatives / num_total_negatives
 			precision = num_true_positives / (num_true_positives + num_false_positives)
-			accuracy = (num_true_positives + num_true_negatives) / len(y_true)
+			accuracy = (num_true_positives + num_true_negatives) / (num_total_positives + num_total_negatives)
 			f1score = (2 * num_true_positives) / (2 * num_true_positives + num_false_positives + num_false_negatives)
 			informedness = recall + selectivity - 1.
 
