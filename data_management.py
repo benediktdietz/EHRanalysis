@@ -448,8 +448,8 @@ class DataSetIterator(Dataset):
 
   def __getitem__(self, index):
 
-        x = self.features.loc[index, :]
-        y = self.labels.loc[index]
+        x = self.features[index, :]
+        y = self.labels[index]
 
         return x, y
 
@@ -460,12 +460,12 @@ class DataManager():
 		self.data_df = pd.read_csv(process_data_path).drop(columns='Unnamed: 0')
 		self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0]
 
+		self.data_df['will_stay_long'] = (self.data_df['length_of_stay'] > 24*7).astype(float)
 
 		self.target_features = target_features
 
 		# for k in range(len(self.data_df.keys())):
 		# 	print('.........', str(self.data_df.keys()[k]).ljust(70, '.'), self.data_df[self.data_df.keys()[k]].dtype)
-
 
 		self.label_cols = [
 			# doesnt make sense to include or not properly formatted cols
@@ -515,43 +515,66 @@ class DataManager():
 			'will_return',
 			'will_die',
 			'will_readmit',
+			'will_stay_long',
 			'visits_current_stay',
 			'unit_readmission',
 			'survive_current_icu',
 			]
 
+		
+
 		# self.remove_some_outliers()
 
-		self.consolidate_previous_ICUs()
-		self.check_data()
+		# self.consolidate_previous_ICUs()
+		# self.check_data()
 
+		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
 
-		self.training_data = self.split_data()
 
 	def consolidate_previous_ICUs(self):
 
-		consolidation_keys = self.data_df.keys.values
-		consolidation_keys.drop(columns=self.label_cols)
-		consolidation_keys.drop(columns=['gender', 'age', 'ethnicity'])
+		consolidation_keys = self.data_df.keys()
+		consolidation_keys.drop(self.label_cols)
+		consolidation_keys.drop([
+			'age',
+			'gender_Female',
+			'gender_Male',
+			'gender_Unknown',
+			'ethnicity_African American',
+			'ethnicity_Asian',
+			'ethnicity_Hispanic',
+			'ethnicity_Native American',
+			'ethnicity_Other/Unknown',
+			'ethnicity_Unknown',
+			])
+
 
 		corr_ids = self.data_df['corr_id'].unique()
 
+		print('\nconsolidating previous ICU features...')
+		pbar = tqdm(total=len(corr_ids))
 		for correlated_id in corr_ids:
-
+			pbar.update(1)
 			corr_health_id = self.data_df['health_system_id'].loc[self.data_df['corr_id'] == correlated_id].values.item()
 			corr_visit_number = self.data_df['visit_number'].loc[self.data_df['corr_id'] == correlated_id].values.item()
 
+			other_stays = self.data_df['health_system_id'] == corr_health_id
+			previous_stays = self.data_df['visit_number'] < corr_visit_number
+			hist_index = np.logical_and(other_stays, previous_stays)
+
 			if corr_visit_number > 1:
 
-				print('HELLO!!!')
+				dummy = self.data_df.loc[self.data_df['health_system_id'] == corr_health_id]
+				dummy = dummy[consolidation_keys].loc[dummy['visit_number'] < corr_visit_number].sum(0)
 
-				self.data_df[consolidation_keys].loc[self.data_df['corr_id'] == correlated_id] = self.data_df[consolidation_keys].loc[self.data_df['health_system_id'] == corr_health_id & self.data_df['visit_number'] < corr_visit_number].sum(0)
+				try:
+					self.data_df[consolidation_keys].loc[self.data_df['corr_id'] == correlated_id] += dummy
+				except TypeError:
+					continue
 
+		pbar.close()
 
-
-
-
-
+		self.data_df.to_csv('../mydata/mydata_consolidated_10k.csv')
 
 	def remove_some_outliers(self):
 
@@ -636,6 +659,7 @@ class DataManager():
 					'visit': self.data_df['visit_number'].loc[self.data_df['corr_id'] == corr_id].values.item(),
 					'readmit': self.data_df['unit_readmission'].loc[self.data_df['corr_id'] == corr_id].values.item(),
 					'will_readmit': self.data_df['will_readmit'].loc[self.data_df['corr_id'] == corr_id].values.item(),
+					'will_stay_long': self.data_df['will_stay_long'].loc[self.data_df['corr_id'] == corr_id].values.item(),
 					})
 
 
@@ -660,14 +684,14 @@ class DataManager():
 
 
 		data_container = {
-				'x_full': self.data_df.drop(columns = self.label_cols),
+				'x_full': self.data_df.drop(columns = self.label_cols).values,
 				'x_train': x_training,
 				'x_test': x_validation,
-				'y_full': self.data_df[self.target_features],
+				'y_full': self.data_df[self.target_features].values,
 				'y_train': y_training,
 				'y_test': y_validation}
 
-		return data_container
+		return data_container, x_training.shape[1], y_training.shape[1]
 
 	def split_data_old(self):
 
@@ -697,24 +721,40 @@ class DataManager():
 
 		return data_container
 
-	def get_train_iterator(self, batch_size):
+	def get_train_iterator(self, batch_size, target_label):
+
+		dummy = pd.concat([
+			self.training_data['y_train'][target_label],
+			1-self.training_data['y_train'][target_label],
+			], axis=1).values
+		
+		# dummy = self.training_data['y_train'][target_label].values
 		
 		return DataLoader(
 			DataSetIterator(
-				self.training_data['x_train'], 
-				self.training_data['y_train'][self.target_features]), 
+				self.training_data['x_train'].values, 
+				dummy), 
 			batch_size=batch_size, 
 			shuffle=True, 
-			num_workers=0, 
+			num_workers=2, 
 			drop_last=False)
 
-	def get_test_iterator(self, batch_size):
-		
+	def get_test_iterator(self, batch_size, target_label):
+
+		dummy = pd.concat([
+			self.training_data['y_test'][target_label],
+			1-self.training_data['y_test'][target_label],
+			], axis=1).values
+
+		# dummy = self.training_data['y_test'][target_label].values
+
 		return DataLoader(
 			DataSetIterator(
-				self.training_data['x_test'], 
-				self.training_data['y_test'][self.target_features]), 
+				self.training_data['x_test'].values, 
+				dummy), 
 			batch_size=batch_size, 
 			shuffle=True, 
-			num_workers=0, 
+			num_workers=2, 
 			drop_last=False)
+
+

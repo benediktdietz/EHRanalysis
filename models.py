@@ -13,12 +13,10 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE, SpectralEmbedding, LocallyLinearEmbedding
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
-OUTPATH = '../results/test_new/'
-print('\nwriting output results to ' + OUTPATH + '\n\n')
 
 class Embedding():
 
-	def __init__(self, dataset, figure_path = OUTPATH, plots = True):
+	def __init__(self, dataset, figure_path, plots = True):
 
 		self.dataset = dataset
 		self.figure_path = figure_path
@@ -129,7 +127,7 @@ class Embedding():
 
 class Classifier():
 
-	def __init__(self, dataset, target, figure_path = OUTPATH, plots = True):
+	def __init__(self, dataset, target, figure_path, plots = True):
 
 		self.dataset = dataset
 		self.figure_path = figure_path
@@ -195,7 +193,6 @@ class Classifier():
 
 		self.fit_models()
 		self.roc_analysis()
-
 
 	def fit_models(self):
 
@@ -307,7 +304,7 @@ class Classifier():
 
 class Regressor():
 
-	def __init__(self, dataset, target, figure_path = OUTPATH, plots = True):
+	def __init__(self, dataset, target, figure_path, plots = True):
 
 		self.dataset = dataset
 		self.figure_path = figure_path
