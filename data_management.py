@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.preprocessing import StandardScaler, RobustScaler
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from sklearn.ensemble import IsolationForest
 from tqdm import tqdm
@@ -25,6 +26,7 @@ class eICU_DataLoader():
 		patient_table = pd.read_csv(self.read_path + 'patient.csv')
 		patient_table = patient_table.loc[patient_table['age'] != 'NaN']
 		patient_table = patient_table.loc[patient_table['age'] != 'nan']
+		patient_table = patient_table.loc[patient_table['gender'] != 'Unknown']
 		print('patient_table loaded successfully'.ljust(50) + str(np.round(len(patient_table)/1000000., 1)) + ' Mio rows | ' + str(int(patient_table.shape[1])) + ' cols')
 		medication_table = pd.read_csv(self.read_path + 'medication.csv', low_memory=False)
 		medication_table = medication_table.loc[medication_table['drugordercancelled'] == 'No']
@@ -33,6 +35,8 @@ class eICU_DataLoader():
 		print('diagnosis_table loaded successfully'.ljust(50) + str(np.round(len(diagnosis_table)/1000000., 1)) + ' Mio rows | ' + str(int(diagnosis_table.shape[1])) + ' cols')
 		pasthistory_table = pd.read_csv(self.read_path + 'pastHistory.csv')
 		print('pasthistory_table loaded successfully'.ljust(50) + str(np.round(len(pasthistory_table)/1000000., 1)) + ' Mio rows | ' + str(int(pasthistory_table.shape[1])) + ' cols')
+		lab_table = pd.read_csv(self.read_path + 'lab.csv')
+		print('lab_table loaded successfully'.ljust(50) + str(np.round(len(lab_table)/1000000., 1)) + ' Mio rows | ' + str(int(lab_table.shape[1])) + ' cols')
 		print('\n\n')
 
 		if self.num_patients < 0:
@@ -42,7 +46,7 @@ class eICU_DataLoader():
 
 		patientIDs = patient_table['uniquepid'].unique()[:num_patients_to_load]
 
-		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.7, random_state=123)
+		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.8, random_state=123)
 
 		for train_index, test_index in stratified_splitter.split(
 			np.zeros(len(patientIDs)), 
@@ -78,6 +82,11 @@ class eICU_DataLoader():
 				correlated_pasthistory_ids = np.asarray(pasthistory_table['pasthistoryid'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
 				pasthistory_notetypes = np.asarray(pasthistory_table['pasthistorynotetype'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
 				pasthistory_values = np.asarray(pasthistory_table['pasthistoryvalue'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
+
+				correlated_lab_ids = np.asarray(lab_table['labid'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
+				correlated_lab_type_ids = np.asarray(lab_table['labtypeid'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
+				correlated_lab_names = np.asarray(lab_table['labname'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
+				correlated_lab_results = np.asarray(lab_table['labresult'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
 
 
 				if patient_table['age'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() == '> 89':
@@ -192,6 +201,10 @@ class eICU_DataLoader():
 					'unit_discharge_location': patient_table['unitdischargelocation'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
 					'unit_stay_type': patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
 					'hospital_id': patient_table['hospitalid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+					'lab_ids': correlated_lab_ids,
+					'lab_type_ids': correlated_lab_type_ids,
+					'lab_names': correlated_lab_names,
+					'lab_results': correlated_lab_results,
 					'medication_ids': medication_ids,
 					'diagnosis_ids': diagnosis_ids,
 					'drug_strings_prescribed': np.asarray(drug_strings_prescribed),
@@ -204,6 +217,7 @@ class eICU_DataLoader():
 					'pasthistory_notetypes': pasthistory_notetypes,
 					'pasthistory_values': pasthistory_values,
 					})
+
 
 		pbar.close()
 		print('\n')
@@ -234,6 +248,8 @@ class DataProcessor():
 			'unit_type',
 			'unit_discharge_location',
 			'unit_stay_type',
+			'diagnosis_priority',
+			'lab_type_ids',
 			]
 
 		array_features = [
@@ -241,6 +257,8 @@ class DataProcessor():
 			'diagnosis_ICD9code',
 			'pasthistory_notetypes',
 			'pasthistory_values',
+			'lab_names',
+			'lab_results',
 			]
 
 		array_features_unused = [
@@ -248,6 +266,7 @@ class DataProcessor():
 			'diagnosis_string',
 			'medication_ids',
 			'diagnosis_ids',
+			'lab_ids',
 			]
 
 
@@ -462,6 +481,12 @@ class DataManager():
 
 		self.data_df['will_stay_long'] = (self.data_df['length_of_stay'] > 24*7).astype(float)
 
+		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] > 1000.] = 1000.
+		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] < 1.] = 1.
+		self.data_df['length_of_icu'] = np.log(self.data_df['length_of_icu'])
+		self.scaler = RobustScaler().fit(self.data_df['length_of_icu'].values.reshape(-1,1))
+		self.data_df['length_of_icu'] = self.scaler.transform(self.data_df['length_of_icu'].values.reshape(-1,1))
+
 		self.target_features = target_features
 
 		# for k in range(len(self.data_df.keys())):
@@ -489,7 +514,7 @@ class DataManager():
 			'diagnosis_offset',
 			'diagnosis_activeUponDischarge',
 			'diagnosis_ids',
-			'diagnosis_priority',
+			# 'diagnosis_priority',
 			'diagnosis_ICD9code',
 			'unit_discharge_offset',
 			'unit_discharge_status_Alive',
@@ -525,7 +550,7 @@ class DataManager():
 
 		# self.remove_some_outliers()
 
-		# self.consolidate_previous_ICUs()
+		self.consolidate_previous_ICUs()
 		# self.check_data()
 
 		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
@@ -574,7 +599,7 @@ class DataManager():
 
 		pbar.close()
 
-		self.data_df.to_csv('../mydata/mydata_consolidated_10k.csv')
+		self.data_df.to_csv('../mydata/mydata_consolidated_new.csv')
 
 	def remove_some_outliers(self):
 
@@ -736,7 +761,7 @@ class DataManager():
 				dummy), 
 			batch_size=batch_size, 
 			shuffle=True, 
-			num_workers=2, 
+			num_workers=0, 
 			drop_last=False)
 
 	def get_test_iterator(self, batch_size, target_label):
@@ -754,7 +779,7 @@ class DataManager():
 				dummy), 
 			batch_size=batch_size, 
 			shuffle=True, 
-			num_workers=2, 
+			num_workers=0, 
 			drop_last=False)
 
 
