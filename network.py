@@ -17,7 +17,7 @@ class RegressionNN(nn.Module):
 
 		super(RegressionNN, self).__init__()
 
-		outdim_layer0 = 1024
+		outdim_layer0 = 2048
 		outdim_layer1 = 1024
 		outdim_layer2 = 512
 		outdim_layer3 = 128
@@ -46,7 +46,6 @@ class RegressionNN(nn.Module):
 		torch.nn.init.xavier_uniform_(self.fully_connected_2.weight)
 		torch.nn.init.xavier_uniform_(self.fully_connected_3.weight)
 		torch.nn.init.xavier_uniform_(self.fully_connected_final.weight)
-
 
 	def forward(self, x, is_training=True):
 		
@@ -78,7 +77,7 @@ class ClassificationNN(nn.Module):
 
 		super(ClassificationNN, self).__init__()
 
-		outdim_layer0 = 1024
+		outdim_layer0 = 2048
 		outdim_layer1 = 1024
 		outdim_layer2 = 512
 		outdim_layer3 = 128
@@ -109,7 +108,6 @@ class ClassificationNN(nn.Module):
 		torch.nn.init.xavier_uniform_(self.fully_connected_3.weight)
 		torch.nn.init.xavier_uniform_(self.fully_connected_final.weight)
 
-
 	def forward(self, x, is_training=True):
 		
 		x = self.bn_00(x.float())
@@ -136,7 +134,7 @@ class ClassificationNN(nn.Module):
 
 class NetworkTrainer():
 
-	def __init__(self, DataManager, target_label, outdir, task, epochs=10001, learning_rate=4e-3, batch_size=512, validation_freq=100):
+	def __init__(self, DataManager, target_label, outdir, task, epochs=5001, learning_rate=6e-5, batch_size=512, validation_freq=50):
 
 
 		self.epochs = epochs
@@ -171,7 +169,8 @@ class NetworkTrainer():
 			self.model = ClassificationNN(DataManager)
 		if self.task == 'regression':
 			self.model = RegressionNN(DataManager)
-			self.scaler = DataManager.scaler
+			self.scaler_lo_icu = DataManager.scaler_lo_icu
+			self.scaler_lo_hospital = DataManager.scaler_lo_hospital
 
 		self.optimizer = torch.optim.Adam(
 			self.model.parameters(),
@@ -195,9 +194,8 @@ class NetworkTrainer():
 
 				roc_auc = auc(fp_rate, tp_rate)
 
-				y_true = np.ravel(y_true)
-				predictions = np.ravel(predictions)
-
+				y_true = np.ravel(np.nan_to_num(y_true))
+				predictions = np.ravel(np.nan_to_num(predictions))
 
 				roc_dummy = pd.DataFrame({
 					'fp_rate': fp_rate,
@@ -293,20 +291,38 @@ class NetworkTrainer():
 				plt.ylabel('[%]')
 				plt.title('Validation Performance Metrics for ' + self.target_label)
 				plt.grid()
+				plt.ylim(50.,100.)
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/performance.pdf')
 				plt.close()
 
 			if self.task == 'regression':
 
-				y_true = np.ravel(
-					np.exp(
-						self.scaler.inverse_transform(
-							np.reshape(y_true, (-1,1)))))
-				predictions = np.ravel(
-					np.exp(
-						self.scaler.inverse_transform(
-							np.reshape(predictions, (-1,1)))))
+				# y_true = np.ravel(np.reshape(y_true, (-1,1)))
+				# predictions = np.ravel(np.reshape(predictions, (-1,1)))
+
+				y_true = np.nan_to_num(y_true)
+				predictions = np.nan_to_num(predictions)
+
+				if self.target_label == 'length_of_icu':
+					y_true = np.ravel(
+						np.exp(
+							self.scaler_lo_icu.inverse_transform(
+								np.reshape(y_true, (-1,1)))))
+					predictions = np.ravel(
+						np.exp(
+							self.scaler_lo_icu.inverse_transform(
+								np.reshape(predictions, (-1,1)))))
+
+				if self.target_label == 'length_of_stay':
+					y_true = np.ravel(
+						np.exp(
+							self.scaler_lo_hospital.inverse_transform(
+								np.reshape(y_true, (-1,1)))))
+					predictions = np.ravel(
+						np.exp(
+							self.scaler_lo_hospital.inverse_transform(
+								np.reshape(predictions, (-1,1)))))
 
 				mse = mean_squared_error(y_true, predictions)
 				r2 = r2_score(y_true, predictions)
@@ -332,12 +348,16 @@ class NetworkTrainer():
 
 				plt.figure(figsize=(12,12))
 				plt.title('epoch ' + str(self.epoch_counter_train) + ' | mae ' + str(np.round(mae, 2)) + ' | r2 ' + str(np.round(r2, 2)))
-				plt.scatter(y_true, predictions, c='darkgreen', s=12, alpha=.4)
+				plt.scatter(y_true, predictions, c='darkgreen', s=16, alpha=.4)
 				plt.xscale('log')
 				plt.yscale('log')
-				plt.xlim(1., 1000.)
-				plt.ylim(1., 1000.)
-				plt.grid()
+				if self.target_label == 'length_of_icu':
+					plt.xlim(1., 1000.)
+					plt.ylim(1., 1000.)
+				if self.target_label == 'length_of_stay':
+					plt.xlim(1., 2000.)
+					plt.ylim(1., 2000.)
+				plt.grid(which='both')
 				plt.xlabel('Labels [hours spent in ICU]')
 				plt.ylabel('Predictions [hours spent in ICU]')
 				plt.savefig(self.outdir + self.target_label + '/predictions/' + self.target_label + '_epoch_' + str(self.epoch_counter_train) + '.pdf')
@@ -351,7 +371,8 @@ class NetworkTrainer():
 				plt.xlabel('epochs')
 				plt.ylabel('MSE Loss')
 				plt.title('Mean Squared Error')
-				plt.grid()
+				plt.ylim(1e2,1e5)
+				plt.grid(which='both')
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/mse.pdf')
 				plt.close()
@@ -372,7 +393,9 @@ class NetworkTrainer():
 				plt.xlabel('epochs')
 				plt.ylabel('Mean Absolute Error [hours spent in ICU]')
 				plt.title('Mean Absolute Error')
-				plt.grid()
+				plt.ylim(10.,100.)
+				plt.yscale('log')
+				plt.grid(which='both')
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/mae.pdf')
 				plt.close()
@@ -400,7 +423,7 @@ class NetworkTrainer():
 			plt.xlabel('epochs')
 			plt.ylabel('crossentropy loss')
 			plt.title('training progress')
-			plt.grid()
+			plt.grid(which='both')
 			plt.legend()
 			plt.savefig(self.outdir + self.target_label + '/training.pdf')
 			plt.close()
@@ -417,8 +440,8 @@ class NetworkTrainer():
 
 				roc_auc = auc(fp_rate, tp_rate)
 
-				y_true = np.ravel(y_true)
-				predictions = np.ravel(predictions)
+				y_true = np.ravel(np.nan_to_num(y_true))
+				predictions = np.ravel(np.nan_to_num(predictions))
 
 
 				roc_dummy = pd.DataFrame({
@@ -515,14 +538,38 @@ class NetworkTrainer():
 				plt.ylabel('[%]')
 				plt.title('Validation Performance Metrics for ' + self.target_label)
 				plt.grid()
+				plt.ylim(50.,100.)
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/performance_train.pdf')
 				plt.close()
 
 			if self.task == 'regression':
 
-				y_true = np.exp(self.scaler.inverse_transform(np.reshape(y_true, (-1,1))))
-				predictions = np.exp(self.scaler.inverse_transform(np.reshape(predictions, (-1,1))))
+				# y_true = np.ravel(np.reshape(y_true, (-1,1)))
+				# predictions = np.ravel(np.reshape(predictions, (-1,1)))
+
+				y_true = np.nan_to_num(y_true)
+				predictions = np.nan_to_num(predictions)
+
+				if self.target_label == 'length_of_icu':
+					y_true = np.ravel(
+						np.exp(
+							self.scaler_lo_icu.inverse_transform(
+								np.reshape(y_true, (-1,1)))))
+					predictions = np.ravel(
+						np.exp(
+							self.scaler_lo_icu.inverse_transform(
+								np.reshape(predictions, (-1,1)))))
+
+				if self.target_label == 'length_of_stay':
+					y_true = np.ravel(
+						np.exp(
+							self.scaler_lo_hospital.inverse_transform(
+								np.reshape(y_true, (-1,1)))))
+					predictions = np.ravel(
+						np.exp(
+							self.scaler_lo_hospital.inverse_transform(
+								np.reshape(predictions, (-1,1)))))
 
 				mse = mean_squared_error(y_true, predictions)
 				r2 = r2_score(y_true, predictions)
@@ -547,12 +594,16 @@ class NetworkTrainer():
 
 				plt.figure(figsize=(12,12))
 				plt.title('epoch ' + str(self.epoch_counter_train) + ' | mae ' + str(np.round(mae, 2)) + ' | r2 ' + str(np.round(r2, 2)))
-				plt.scatter(y_true, predictions, c='darkgreen', s=12, alpha=.4)
+				plt.scatter(y_true, predictions, c='darkgreen', s=16, alpha=.4)
 				plt.xscale('log')
 				plt.yscale('log')
-				plt.xlim(1., 1000.)
-				plt.ylim(1., 1000.)
-				plt.grid()
+				if self.target_label == 'length_of_icu':
+					plt.xlim(1., 1000.)
+					plt.ylim(1., 1000.)
+				if self.target_label == 'length_of_stay':
+					plt.xlim(1., 2000.)
+					plt.ylim(1., 2000.)
+				plt.grid(which='both')
 				plt.xlabel('Labels [hours spent in ICU]')
 				plt.ylabel('Predictions [hours spent in ICU]')
 				plt.savefig(self.outdir + self.target_label + '/predictions_train/' + self.target_label + '_epoch_' + str(self.epoch_counter_train) + '.pdf')
@@ -566,7 +617,8 @@ class NetworkTrainer():
 				plt.xlabel('epochs')
 				plt.ylabel('MSE Loss')
 				plt.title('Mean Squared Error')
-				plt.grid()
+				plt.ylim(1e2,1e5)
+				plt.grid(which='both')
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/mse_train.pdf')
 				plt.close()
@@ -587,7 +639,9 @@ class NetworkTrainer():
 				plt.xlabel('epochs')
 				plt.ylabel('Mean Absolute Error [hours spent in ICU]')
 				plt.title('Mean Absolute Error')
-				plt.grid()
+				plt.ylim(10.,100.)
+				plt.yscale('log')
+				plt.grid(which='both')
 				plt.legend()
 				plt.savefig(self.outdir + self.target_label + '/mae_train.pdf')
 				plt.close()
@@ -631,7 +685,6 @@ class NetworkTrainer():
 								torch.reshape(local_labels.type(torch.float)[0,:], (1,-1)),
 								reduction = 'none')
 							))
-
 
 				validation_loss += (loss / len(self.validation_generator))
 
@@ -730,7 +783,7 @@ class NetworkTrainer():
 							train_prediction_cache = np.concatenate((train_prediction_cache, np.reshape(np.asarray(output.detach().numpy()), (-1,1))), axis=0)
 
 
-			if self.epoch_counter_train % (1*self.validation_freq) == 0:
+			if self.epoch_counter_train % (2*self.validation_freq) == 0:
 				if self.task == 'classification':
 					y_true_train = np.reshape(np.asarray(train_label_cache), (-1,2))[:,0]
 					predictions_train = np.reshape(np.asarray(train_prediction_cache), (-1,2))[:,0]
@@ -741,12 +794,14 @@ class NetworkTrainer():
 
 			if self.epoch_counter_train % self.validation_freq == 0: 
 				self.validate()
-				if self.epoch_counter_train % (1*self.validation_freq) == 0: 
+				if self.epoch_counter_train % (2*self.validation_freq) == 0: 
 					self.evaluate_training(y_true_train, predictions_train, epoch_loss)
 
+		
 			self.train_loss_vec.append(epoch_loss.detach().numpy())
-			self.epoch_counter_train += 1
 			self.last_train_epoch_loss = epoch_loss.detach().numpy()
+			
+			self.epoch_counter_train += 1
 
 			pbar.update(1)
 		pbar.close()

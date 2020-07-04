@@ -289,7 +289,7 @@ class Classifier():
 		roc_df = pd.DataFrame(roc_df)
 		roc_df.set_index('model')
 		print('\nclassification results on validation set for recall approx.', \
-			set_recall, ' taget: ', self.target, '\n', roc_df.round(2).sort_values('auroc', ascending=False), '\n')
+			set_recall, ' target: ', self.target, '\n', roc_df.round(2).sort_values('auroc', ascending=False), '\n')
 
 		
 		plt.plot([0,1],[0,1],'r--')

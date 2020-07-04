@@ -2,20 +2,20 @@ from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, Dat
 from models import Embedding, Classifier, Regressor
 from network import NetworkTrainer
 
-OUTPATH = '../results/test_torch6/'
+OUTPATH = '../results/new2/'
 
 # path to the eICU CRD 2.0 CSV files
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
 # path to processed DataFrame (combination of patient.csv, diagnosis.csv, medication.csv)
-mydata_path = '../mydata/mydata_new.csv'
+mydata_path = '../mydata/nomeds_20k.csv'
 # path to encoded DataFrame (one-hot encoding, redundant features dropped)
-mydata_path_processed = '../mydata/mydata_processed_new.csv'
-# mydata_path_processed = '../mydata/mydata_consolidated_new.csv'
+mydata_path_processed = '../mydata/nomeds_20k_processed.csv'
+mydata_path_processed = '../mydata/nomeds_2k_processed_consolidated.csv'
 
-# loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
-eICU_DataLoader(eICU_path, mydata_path, num_patients=1000)
-# loads combined DataFrame and builds encoded, useable DataFrame. uncomment if not yet available
-DataProcessor(mydata_path, mydata_path_processed)
+# # loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
+# eICU_DataLoader(eICU_path, mydata_path, num_patients=20000)
+# # loads combined DataFrame and builds encoded, useable DataFrame. uncomment if not yet available
+# DataProcessor(mydata_path, mydata_path_processed)
 
 
 eICU_data = DataManager(
@@ -32,14 +32,15 @@ eICU_data = DataManager(
 	])
 
 
-NetworkTrainer(eICU_data, 'length_of_icu', OUTPATH, 'regression')
+# NetworkTrainer(eICU_data, 'length_of_icu', OUTPATH, 'regression')
+# NetworkTrainer(eICU_data, 'length_of_stay', OUTPATH, 'regression')
 
-# NetworkTrainer(eICU_data, 'will_die', OUTPATH, 'classification')
-# NetworkTrainer(eICU_data, 'will_readmit', OUTPATH, 'classification')
-# NetworkTrainer(eICU_data, 'will_stay_long', OUTPATH, 'classification')
-# NetworkTrainer(eICU_data, 'unit_readmission', OUTPATH, 'classification')
-# NetworkTrainer(eICU_data, 'survive_current_icu', OUTPATH, 'classification')
-# NetworkTrainer(eICU_data, 'will_return', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'survive_current_icu', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'will_return', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'will_die', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'will_readmit', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'will_stay_long', OUTPATH, 'classification')
+NetworkTrainer(eICU_data, 'unit_readmission', OUTPATH, 'classification')
 
 # Regressor(eICU_data, 'length_of_stay', OUTPATH)
 # Regressor(eICU_data, 'length_of_icu', OUTPATH)
