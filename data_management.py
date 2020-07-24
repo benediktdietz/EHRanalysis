@@ -1,4 +1,4 @@
-import math, re
+import math, re, os
 import numpy as np
 import pandas as pd
 pd.set_option('mode.chained_assignment', None)
@@ -59,7 +59,7 @@ class eICU_DataLoader():
 
 
 		if self.num_patients < 0:
-			num_patients_to_load = len(patientIDs)
+			num_patients_to_load = len(patient_table['uniquepid'].unique())
 		else:
 			num_patients_to_load = self.num_patients
 
@@ -332,9 +332,12 @@ class DataProcessor():
 
 		self.df_onehot = pd.get_dummies(self.dataframe, columns = categorical_feature_names, prefix = categorical_feature_names)
 		
-		self.process_array_cols(array_features)
 
+		self.process_array_cols(array_features)
+		self.consolidate_previous_ICUs()
 		self.add_hospital_stats()
+
+		self.make_federated_sets()
 		
 		# self.df_onehot.drop(columns=array_features_unused)
 
@@ -504,6 +507,120 @@ class DataProcessor():
 					self.df_onehot, 
 					'\n************************************\n\n\n')
 
+	def consolidate_previous_ICUs(self):
+		
+		label_cols = [
+			# doesnt make sense to include or not properly formatted cols
+			'patient_id',
+			'health_system_id',
+			'corr_id',
+			'data_set_ref',
+			# 'medication_ids',
+			# 'drug_strings_prescribed',
+			# 'drug_codes_prescribed',
+			# 'diagnosis_string',
+			'pasthistory_notetypes',
+			'pasthistory_values',
+			'hospital_discharge_year_2014',
+			'hospital_discharge_year_2015',
+			# labels we want to predict or shouldnt be available for our predictions
+			'length_of_stay',
+			'icu_admission_time',
+			'length_of_icu',
+			'icu_discharge',
+			'diagnosis_offset',
+			'diagnosis_activeUponDischarge',
+			# 'diagnosis_ids',
+			# 'diagnosis_priority',
+			'diagnosis_ICD9code',
+			'unit_discharge_offset',
+			'unit_discharge_status_Alive',
+			'unit_discharge_status_Expired',
+			'unit_discharge_location_Death',
+			'unit_discharge_location_Floor',
+			'unit_discharge_location_Home',
+			# 'unit_discharge_location_Other',
+			'unit_discharge_location_Other External',
+			'unit_discharge_location_Other Hospital',
+			'unit_discharge_location_Other ICU',
+			# 'unit_discharge_location_Rehabilitation',
+			'unit_discharge_location_Skilled Nursing Facility',
+			'unit_discharge_location_Step-Down Unit (SDU)',
+			# 'unit_discharge_location_Telemetry',
+			'unit_stay_type_admit',
+			'unit_stay_type_readmit',
+			'unit_stay_type_stepdown/other',
+			'unit_stay_type_transfer',
+			'hospital_discharge_offset',
+			'hospital_discharge_status_Alive',
+			'hospital_discharge_status_Expired',
+			'will_return',
+			'will_die',
+			'will_readmit',
+			'will_stay_long',
+			'visits_current_stay',
+			'unit_readmission',
+			'survive_current_icu',
+			'lab_type_ids',
+			'lab_names',
+			]
+
+		consolidation_keys = self.df_onehot.keys()
+		consolidation_keys.drop(label_cols)
+		consolidation_keys.drop([
+			'age',
+			'gender_Female',
+			'gender_Male',
+			# 'gender_Unknown',
+			'ethnicity_African American',
+			'ethnicity_Asian',
+			'ethnicity_Hispanic',
+			'ethnicity_Native American',
+			# 'ethnicity_Other/Unknown',
+			# 'ethnicity_Unknown',
+			# 'will_die_mean',
+			# 'will_readmit_mean',
+			# 'will_return_mean',
+			# 'will_stay_long_mean',
+			# 'survive_current_icu_mean',
+			# 'unit_readmission_mean',
+			# 'length_of_stay_mean',
+			# 'length_of_stay_var',
+			# 'length_of_icu_mean',
+			# 'length_of_icu_var',
+			])
+
+
+		corr_ids = self.df_onehot['corr_id'].unique()
+
+		print('\nconsolidating previous ICU features...')
+		pbar = tqdm(total=len(corr_ids))
+		for correlated_id in corr_ids:
+			pbar.update(1)
+			corr_health_id = self.df_onehot['health_system_id'].loc[self.df_onehot['corr_id'] == correlated_id].values.item()
+			corr_visit_number = self.df_onehot['visit_number'].loc[self.df_onehot['corr_id'] == correlated_id].values.item()
+
+			other_stays = self.df_onehot['health_system_id'] == corr_health_id
+			previous_stays = self.df_onehot['visit_number'] < corr_visit_number
+			hist_index = np.logical_and(other_stays, previous_stays)
+
+			if corr_visit_number > 1:
+
+				dummy = self.df_onehot.loc[self.df_onehot['health_system_id'] == corr_health_id]
+				dummy = dummy[consolidation_keys].loc[dummy['visit_number'] < corr_visit_number].sum(0)
+
+				try:
+					self.df_onehot[consolidation_keys].loc[self.df_onehot['corr_id'] == correlated_id] += dummy
+				except TypeError:
+					continue
+
+		pbar.close()
+
+		self.df_onehot.to_csv(self.write_path[:-4] + '_consolidated.csv')
+
+
+
+
 	def add_hospital_stats(self):
 
 		clinic_stats_df = []
@@ -531,7 +648,9 @@ class DataProcessor():
 			pbar.update(1)
 		pbar.close()
 
-		clinic_stats_df = pd.DataFrame(clinic_stats_df).reset_index(drop=True)
+		clinic_stats_df = pd.DataFrame(clinic_stats_df)
+		clinic_stats_df.to_csv('clinic_stats.csv')
+		clinic_stats_df.reset_index(drop=True)
 
 
 		print('\nattaching hospital stats dataframe to feature map...')
@@ -586,6 +705,22 @@ class DataProcessor():
 			
 			pbar.update(1)
 		pbar.close()
+
+	def make_federated_sets(self):
+
+		print('\ncomputing federated datasets...')
+		pbar = tqdm(total=len(self.df_onehot['hospital_id'].unique()))
+
+		try: os.makedirs('../mydata/federated/')
+		except FileExistsError: pass
+
+		for hospital_number in self.df_onehot['hospital_id'].unique():
+
+			self.df_onehot[self.df_onehot['hospital_id'] == hospital_number].to_csv('../mydata/federated/hospital_' + str(hospital_number) + '.csv')
+
+			pbar.update(1)
+		pbar.close()
+
 
 class DataSetIterator(Dataset):
 
@@ -681,7 +816,7 @@ class DataManager():
 			]
 
 		# self.remove_some_outliers()
-		# self.consolidate_previous_ICUs()
+		self.consolidate_previous_ICUs()
 		
 		self.data_df_originial = self.data_df
 

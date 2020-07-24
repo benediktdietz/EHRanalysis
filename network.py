@@ -134,7 +134,7 @@ class ClassificationNN(nn.Module):
 
 class NetworkTrainer():
 
-	def __init__(self, DataManager, target_label, outdir, task, epochs=5001, learning_rate=6e-5, batch_size=512, validation_freq=50):
+	def __init__(self, DataManager, target_label, outdir, task, epochs=2001, learning_rate=4e-5, batch_size=512, validation_freq=10):
 
 
 		self.epochs = epochs
@@ -297,6 +297,7 @@ class NetworkTrainer():
 				plt.close()
 
 			if self.task == 'regression':
+				
 
 				# y_true = np.ravel(np.reshape(y_true, (-1,1)))
 				# predictions = np.ravel(np.reshape(predictions, (-1,1)))
@@ -797,7 +798,7 @@ class NetworkTrainer():
 				if self.epoch_counter_train % (2*self.validation_freq) == 0: 
 					self.evaluate_training(y_true_train, predictions_train, epoch_loss)
 
-		
+
 			self.train_loss_vec.append(epoch_loss.detach().numpy())
 			self.last_train_epoch_loss = epoch_loss.detach().numpy()
 			
