@@ -343,7 +343,6 @@ class DataProcessor():
 
 		self.df_onehot.to_csv(self.write_path)
 
-
 	def process_array_cols(self, col_names):
 
 		print_out = False
@@ -721,7 +720,6 @@ class DataProcessor():
 			pbar.update(1)
 		pbar.close()
 
-
 class DataSetIterator(Dataset):
 
   def __init__(self, features, labels):
@@ -816,7 +814,7 @@ class DataManager():
 			]
 
 		# self.remove_some_outliers()
-		self.consolidate_previous_ICUs()
+		# self.consolidate_previous_ICUs()
 		
 		self.data_df_originial = self.data_df
 
@@ -831,8 +829,6 @@ class DataManager():
 		self.data_df['length_of_stay'] = self.scaler_lo_hospital.transform(self.data_df['length_of_stay'].values.reshape(-1,1))
 
 		self.data_df.fillna(0.)
-
-
 
 		self.check_data()
 
@@ -895,7 +891,6 @@ class DataManager():
 		pbar.close()
 
 		self.data_df.to_csv(self.process_data_path[:-4] + '_consolidated.csv')
-
 
 	def remove_some_outliers(self):
 

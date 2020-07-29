@@ -7,32 +7,32 @@ OUTPATH = '../results/new3/'
 # path to the eICU CRD 2.0 CSV files
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
 # path to processed DataFrame (combination of patient.csv, diagnosis.csv, medication.csv)
-mydata_path = '../mydata/nomeds_test.csv'
+mydata_path = '../mydata/nomeds2k.csv'
 # path to encoded DataFrame (one-hot encoding, redundant features dropped)
-mydata_path_processed = '../mydata/nomeds_test_processed.csv'
+mydata_path_processed = '../mydata/nomeds2k_processed.csv'
 # mydata_path_processed = '../mydata/nomeds_test_processed_consolidated.csv'
 
-# # loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
-# eICU_DataLoader(eICU_path, mydata_path, num_patients=5000)
+# loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
+eICU_DataLoader(eICU_path, mydata_path, num_patients=2000)
 # loads combined DataFrame and builds encoded, useable DataFrame. uncomment if not yet available
 DataProcessor(mydata_path, mydata_path_processed)
 
 
-eICU_data = DataManager(
-	mydata_path_processed, 
-	[
-		'length_of_stay',
-		'length_of_icu',
-		'will_return',
-		'will_die',
-		'will_readmit',
-		'will_stay_long',
-		'unit_readmission',
-		'survive_current_icu',
-	])
+# eICU_data = DataManager(
+# 	mydata_path_processed, 
+# 	[
+# 		'length_of_stay',
+# 		'length_of_icu',
+# 		'will_return',
+# 		'will_die',
+# 		'will_readmit',
+# 		'will_stay_long',
+# 		'unit_readmission',
+# 		'survive_current_icu',
+# 	])
 
 
-NetworkTrainer(eICU_data, 'length_of_icu', OUTPATH, 'regression')
+# NetworkTrainer(eICU_data, 'length_of_icu', OUTPATH, 'regression')
 # NetworkTrainer(eICU_data, 'length_of_stay', OUTPATH, 'regression')
 
 # NetworkTrainer(eICU_data, 'survive_current_icu', OUTPATH, 'classification')
