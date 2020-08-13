@@ -5,6 +5,7 @@ import nest_asyncio
 import pandas as pd
 import numpy as np
 nest_asyncio.apply()
+tf.keras.backend.set_floatx('float32')
 
 federated_path = '../mydata/federated'
 available_datasets = os.listdir(federated_path)
@@ -79,26 +80,28 @@ def create_tf_dataset_for_client_fn(client_id):
 
 	client_data = pd.read_csv(federated_path + '/hospital_' + str(client_id) + '.csv')
 
-	print(client_data)
+	# print(client_data)
 
-	feature_map = client_data.drop(columns = label_cols).fillna(0.).values
+	feature_map = client_data.drop(columns = label_cols).fillna(0.)
 	feature_map = np.nan_to_num(feature_map)
 
-	labels = client_data[target_features].values
+	labels = client_data[target_features]
 
 	# client_data = df[df[client_id_colname] == client_id]
 
 	dataset = tf.data.Dataset.from_tensor_slices((feature_map, labels))
 	# dataset = tf.data.Dataset.from_tensor_slices(client_data.to_dict('list'))
-	dataset = dataset.shuffle(SHUFFLE_BUFFER).batch(1).repeat(NUM_EPOCHS)
+	dataset = dataset.shuffle(SHUFFLE_BUFFER).batch(10).repeat(NUM_EPOCHS)
+
+	print('dataset:\n', dataset)
 
 	return dataset
 
 
 for i in range(2):
 	dummy = create_tf_dataset_for_client_fn(available_dataset_ids[i])
-	print(dummy)
-for _ in range(10): print('****************************')
+	# print(dummy)
+# for _ in range(10): print('****************************')
 
 
 # # Load simulation data.
@@ -109,11 +112,54 @@ for _ in range(10): print('****************************')
 
 
 # Pick a subset of client devices to participate in training.
-train_data = [create_tf_dataset_for_client_fn(n) for n in available_dataset_ids[:3]]
+train_data = [create_tf_dataset_for_client_fn(n) for n in available_dataset_ids[:5]]
 
 # Grab a single batch of data so that TFF knows what data looks like.
 sample_batch = tf.nest.map_structure(
 lambda x: x.numpy(), iter(train_data[0]).next())
+
+
+
+class MyModel(tf.keras.Model):
+
+	def __init__(self):
+		super(MyModel, self).__init__()
+		# self.input = tf.keras.layers.Input(shape=(None,808)),
+		self.dense1 = tf.keras.layers.Dense(512, input_shape=(None,808), activation=tf.nn.relu)
+		self.dense2 = tf.keras.layers.Dense(512, activation=tf.nn.relu)
+		self.dense3 = tf.keras.layers.Dense(512, activation=tf.nn.relu)
+		# self.dropout = tf.keras.layers.Dropout(0.5)
+
+	def call(self, inputs, training=False):
+
+		# print('----------', inputs[0])
+		# print('----------', inputs[1])
+
+		x = self.dense1(inputs[0])
+		# if training: x = self.dropout(x, training=training)
+
+		x = self.dense2(x)
+		# if training: x = self.dropout(x, training=training)
+
+		x = self.dense3(x)
+		# if training: x = self.dropout(x, training=training)
+
+		return x
+
+def model_fn2():
+
+	mymodel = MyModel()
+	mymodel.call(train_data[0])
+	mymodel.build(input_shape=(None, 808))
+
+	print('***************\n', mymodel.layers)
+	print('***************\n', mymodel.summary())
+
+	return tff.learning.from_keras_model(
+		mymodel,
+		loss=tf.keras.losses.MeanAbsolutePercentageError(),
+		input_spec=dummy.element_spec,
+		metrics=[tf.keras.metrics.RootMeanSquaredError()])
 
 # Wrap a Keras model for use with TFF.
 def model_fn():
@@ -122,24 +168,37 @@ def model_fn():
 	[
 	tf.keras.layers.Dense(
 		2048, 
-		tf.nn.softmax, 
-		input_shape=(808,),
-		kernel_initializer='zeros')
+		tf.nn.elu, 
+		kernel_initializer='zeros'),
+	tf.keras.layers.Dense(
+		2048, 
+		tf.nn.elu, 
+		kernel_initializer='zeros'),
+	tf.keras.layers.Dense(
+		2048, 
+		tf.nn.elu, 
+		kernel_initializer='zeros'),
 	])
 
 	return tff.learning.from_keras_model(
 		model,
 		# dummy_batch=sample_batch,
-		loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+		loss=tf.keras.losses.MeanAbsolutePercentageError(),
 		input_spec=dummy.element_spec,
-		metrics=[tf.keras.metrics.SparseCategoricalAccuracy()])
+		metrics=[tf.keras.metrics.RootMeanSquaredError()])
 
 # Simulate a few rounds of training with the selected client devices.
 trainer = tff.learning.build_federated_averaging_process(
-	model_fn,
+	model_fn2,
 	client_optimizer_fn=lambda: tf.keras.optimizers.SGD(0.1))
 
 state = trainer.initialize()
 for _ in range(5):
 	state, metrics = trainer.next(state, train_data)
 	print (metrics.loss)
+
+
+
+
+
+
