@@ -13,7 +13,7 @@ mydata_path_processed = '../mydata/nomeds2k_processed.csv'
 # mydata_path_processed = '../mydata/nomeds_test_processed_consolidated.csv'
 
 # loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
-eICU_DataLoader(eICU_path, mydata_path, num_patients=2000)
+eICU_DataLoader(eICU_path, mydata_path, num_patients=20000)
 # loads combined DataFrame and builds encoded, useable DataFrame. uncomment if not yet available
 DataProcessor(mydata_path, mydata_path_processed)
 

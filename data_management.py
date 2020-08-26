@@ -830,7 +830,6 @@ class DataManager():
 
 		self.data_df.fillna(0.)
 
-		self.check_data()
 
 		# self.check_data()
 
@@ -1054,6 +1053,28 @@ class DataManager():
 				'y_test': y_validation}
 
 		return data_container
+
+	def get_train_data(self, target_label):
+	
+		dummy = pd.concat([
+			self.training_data['y_train'][target_label],
+			1-self.training_data['y_train'][target_label],
+			], axis=1).values
+		
+		# dummy = self.training_data['y_train'][target_label].values
+		
+		return self.training_data['x_train'], dummy
+
+	def get_test_data(self, target_label):
+	
+		dummy = pd.concat([
+			self.training_data['y_test'][target_label],
+			1-self.training_data['y_test'][target_label],
+			], axis=1).values
+		
+		# dummy = self.training_data['y_train'][target_label].values
+		
+		return self.training_data['x_test'], dummy
 
 	def get_train_iterator(self, batch_size, target_label):
 

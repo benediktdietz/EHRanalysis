@@ -13,6 +13,8 @@ available_dataset_ids = [int(dataid[9:-4]) for dataid in available_datasets]
 
 SHUFFLE_BUFFER = 4
 NUM_EPOCHS = 10
+BATCH_SIZE = 10
+PREFETCH_BUFFER = 2
 
 target_features = 'length_of_icu'
 
@@ -81,9 +83,12 @@ def create_tf_dataset_for_client_fn(client_id):
 	client_data = pd.read_csv(federated_path + '/hospital_' + str(client_id) + '.csv')
 
 	# print(client_data)
-
+	num_cols = feature_map.shape[1]
 	feature_map = client_data.drop(columns = label_cols).fillna(0.)
 	feature_map = np.nan_to_num(feature_map)
+
+
+	print('*******', feature_map.shape)
 
 	labels = client_data[target_features]
 
@@ -91,7 +96,7 @@ def create_tf_dataset_for_client_fn(client_id):
 
 	dataset = tf.data.Dataset.from_tensor_slices((feature_map, labels))
 	# dataset = tf.data.Dataset.from_tensor_slices(client_data.to_dict('list'))
-	dataset = dataset.shuffle(SHUFFLE_BUFFER).batch(10).repeat(NUM_EPOCHS)
+	dataset = dataset.shuffle(SHUFFLE_BUFFER).batch(BATCH_SIZE).repeat(NUM_EPOCHS)
 
 	print('dataset:\n', dataset)
 
@@ -104,12 +109,6 @@ for i in range(2):
 # for _ in range(10): print('****************************')
 
 
-# # Load simulation data.
-# source, _ = tff.simulation.datasets.emnist.load_data()
-# def client_data(n):
-# 	return source.create_tf_dataset_for_client(source.client_ids[n]).map(
-# 		lambda e: (tf.reshape(e['pixels'], [-1]), e['label'])).repeat(10).batch(20)
-
 
 # Pick a subset of client devices to participate in training.
 train_data = [create_tf_dataset_for_client_fn(n) for n in available_dataset_ids[:5]]
@@ -117,6 +116,24 @@ train_data = [create_tf_dataset_for_client_fn(n) for n in available_dataset_ids[
 # Grab a single batch of data so that TFF knows what data looks like.
 sample_batch = tf.nest.map_structure(
 lambda x: x.numpy(), iter(train_data[0]).next())
+
+def preprocess(dataset):
+
+	# def batch_format_fn(element):
+	# 	return collections.OrderedDict(
+	# 		x=tf.reshape(element['features'], [-1, 808]),
+	# 		y=tf.reshape(element['label'], [-1, 1]))
+
+	# return dataset.repeat(NUM_EPOCHS).shuffle(SHUFFLE_BUFFER).batch(BATCH_SIZE).map(batch_format_fn).prefetch(PREFETCH_BUFFER)
+
+	
+	return dataset.repeat(NUM_EPOCHS).shuffle(SHUFFLE_BUFFER).batch(BATCH_SIZE)
+
+train_data = preprocess(train_data[0])
+
+print('##############')
+print(train_data)
+print('##############')
 
 
 
@@ -149,7 +166,7 @@ class MyModel(tf.keras.Model):
 def model_fn2():
 
 	mymodel = MyModel()
-	mymodel.call(train_data[0])
+	# mymodel.call(train_data[0])
 	mymodel.build(input_shape=(None, 808))
 
 	print('***************\n', mymodel.layers)
