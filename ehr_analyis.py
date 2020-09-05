@@ -2,18 +2,18 @@ from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, Dat
 from models import Embedding, Classifier, Regressor
 from network import NetworkTrainer
 
-OUTPATH = '../results/new3/'
+OUTPATH = '../results/new4/'
 
 # path to the eICU CRD 2.0 CSV files
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
 # path to processed DataFrame (combination of patient.csv, diagnosis.csv, medication.csv)
-mydata_path = '../mydata/nomeds2k.csv'
+mydata_path = '../mydata/newset.csv'
 # path to encoded DataFrame (one-hot encoding, redundant features dropped)
-mydata_path_processed = '../mydata/nomeds2k_processed.csv'
+mydata_path_processed = '../mydata/newset_processed.csv'
 # mydata_path_processed = '../mydata/nomeds_test_processed_consolidated.csv'
 
 # loads orignal CSV files and builds combined DataFrame. uncomment if not yet available
-eICU_DataLoader(eICU_path, mydata_path, num_patients=20000)
+eICU_DataLoader(eICU_path, mydata_path, num_patients=40000)
 # loads combined DataFrame and builds encoded, useable DataFrame. uncomment if not yet available
 DataProcessor(mydata_path, mydata_path_processed)
 

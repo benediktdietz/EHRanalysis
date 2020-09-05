@@ -19,14 +19,14 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras import backend as K
 
-from fl_mnist_implementation_tutorial_utils import *
+from fl_implementation_utils import *
 
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
 mydata_path_processed = '../mydata/nomeds_20k_processed.csv'
 
 
-target_label = 'will_stay_long'
+target_label = 'will_die'
 
 
 eICU_data = DataManager(

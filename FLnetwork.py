@@ -8,34 +8,38 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, roc_curve, auc, log_loss
+from matplotlib import pyplot as plt
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D
-from tensorflow.keras.layers import MaxPooling2D
-from tensorflow.keras.layers import Activation
-from tensorflow.keras.layers import Flatten
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Activation, Flatten, Dense, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import SGD, Adam
 from tensorflow.keras import backend as K
-from fl_mnist_implementation_tutorial_utils import *
+from fl_implementation_utils import *
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
 datapath_processed = '../mydata/nomeds_20k_processed.csv'
 federated_path = '../mydata/federated'
 
-target_label = 'will_return'
+target_label = 'will_die'
 
 
-available_datasets = os.listdir(federated_path)
-available_dataset_ids = [int(dataid[9:-4]) for dataid in available_datasets]
+# available_datasets = os.listdir(federated_path)
+# if '.DS_Store' in available_datasets: 
+# 	available_datasets.remove('.DS_Store')
+
+# for ii in available_datasets:
+# 	print(ii[9:-4])
+# print('done')
+
+# available_dataset_ids = [int(float(dataid[9:-4])) for dataid in available_datasets]
 
 SHUFFLE_BUFFER = 4
 NUM_EPOCHS = 10
 BATCH_SIZE = 10
 PREFETCH_BUFFER = 2
 
-target_features = 'length_of_icu'
+OUTPATH = '../results/fed_net_new7/'
 
 
 def create_tf_dataset_for_client_fn(client_id):
@@ -127,12 +131,25 @@ class MLP_classifier:
 	@staticmethod
 	def build(shape, classes):
 		model = Sequential()
-		model.add(Dense(200, input_shape=(shape,)))
-		model.add(Activation("relu"))
-		model.add(Dense(200))
-		model.add(Activation("relu"))
+
+		# model.add(BatchNormalization())
+		model.add(Dense(512, input_shape=(shape,)))
+		model.add(Dropout(rate=.2))
+		model.add(Activation("sigmoid"))
+
+		# model.add(BatchNormalization())
+		model.add(Dense(256))
+		model.add(Dropout(rate=.2))
+		model.add(Activation("sigmoid"))
+
+		# model.add(BatchNormalization())
+		model.add(Dense(128))
+		model.add(Dropout(rate=.2))
+		model.add(Activation("sigmoid"))
+
 		model.add(Dense(classes))
 		model.add(Activation("softmax"))
+
 		return model
 	
 
@@ -142,15 +159,28 @@ class FederatedLearner():
 
 		self.datapath = datapath
 		self.datapath_fed = datapath_fed
+		self.figure_path = OUTPATH
 		self.target_label = target_label
 
-		self.available_dataset_ids = [int(dataid[9:-4]) for dataid in os.listdir(self.datapath_fed)]
-		self.available_dataset_ids_train = self.available_dataset_ids[:-10]
-		self.available_dataset_ids_test = self.available_dataset_ids[-10:]
+		filelist = os.listdir(self.datapath_fed)
+		if '.DS_Store' in filelist: 
+			filelist.remove('.DS_Store')
+		if '' in filelist: 
+			filelist.remove('')
 
-		self.traing_rounds = 100
-		self.feature_dim = self.get_hospital_data(self.available_dataset_ids[0], return_feature_dim=True)
+		# self.available_dataset_ids = [int(float(dataid[9:-4])) for dataid in filelist]
+		# self.available_dataset_ids_train = self.available_dataset_ids[:-5]
+		# self.available_dataset_ids_test = self.available_dataset_ids[-5:]
+		
+		self.available_dataset_ids = [73]
+		self.available_dataset_ids_train = [176]
+		self.available_dataset_ids_test = [73, 122, 188, 176, 165]
 
+		self.traing_rounds = 1000
+		self.train_epoch = 0
+		self.roc_df = []
+		self.result_df_test = []
+		self.result_df_train = []
 
 		# self.eICU_data = DataManager(self.datapath, 
 			# ['length_of_stay',
@@ -178,10 +208,14 @@ class FederatedLearner():
 		self.clients_batched_test = dict()
 		for (client_name, data) in clients_test.items():
 			self.clients_batched_test[client_name] = batch_data(data)
+		
+		self.feature_dim = self.get_hospital_data(self.available_dataset_ids[0], return_feature_dim=True)
+		# print('\nfeature map dimension: ', self.feature_dim)
 
 		#initialize global model
 		self.global_model = MLP_classifier().build(self.feature_dim, 2)
 	
+
 	def get_hospital_clients(self, id_list):
 
 		#create a list of client names
@@ -193,6 +227,7 @@ class FederatedLearner():
 		assert(len(shards) == len(client_names))
 
 		return {client_names[i] : shards[i] for i in range(len(client_names))}
+
 
 	def get_hospital_data(self, client_id, return_feature_dim=False):
 
@@ -262,6 +297,8 @@ class FederatedLearner():
 			axis = 1)
 		labels = np.asarray(labels.values)
 
+		# print('\nfeature_maps: ', feature_map.shape, '\n')
+
 		dataset = list(zip(feature_map, labels))
 		random.shuffle(dataset)
 
@@ -270,23 +307,23 @@ class FederatedLearner():
 		else:
 			return dataset
 
+
 	def train(self):
-		
-		self.traing_rounds = 100
-				
+					
 		#create optimizer
-		lr = 0.0001 
+		lr = 0.001 
 		loss='categorical_crossentropy'
 		metrics = ['accuracy']
-		optimizer = SGD(
-			lr=lr, 
-			decay=lr / self.traing_rounds, 
-			momentum=0.9)
+		# optimizer = SGD(
+		# 	lr=lr, 
+		# 	decay=lr / self.traing_rounds, 
+		# 	momentum=0.9)
+		optimizer = Adam(learning_rate = 1e-5)
 										 
 		#commence global training loop
 		for comm_round in range(self.traing_rounds):
 
-			print('training federated round number' + str(comm_round))
+			print('training federated round number ' + str(comm_round))
 							
 			# get the global model's weights - will serve as the initial weights for all local models
 			global_weights = self.global_model.get_weights()
@@ -296,77 +333,11 @@ class FederatedLearner():
 
 			#randomize client data - using keys
 			client_names= list(self.clients_batched.keys())
-
 			random.shuffle(client_names)
 			
 			#loop through each client and create new local model
 			for client in client_names:
-					smlp_local = MLP_classifier()
-					local_model = smlp_local.build(self.feature_dim, 2)
-					local_model.compile(
-						loss=loss, 
-						optimizer=optimizer,
-						metrics=metrics)
-					
-					#set local model weight to the weight of the global model
-					local_model.set_weights(global_weights)
 
-					# print('\nself.clients_batched[client]\n', self.clients_batched[client], '\n')
-
-					#fit local model with client's data
-					local_model.fit(self.clients_batched[client], epochs=1, verbose=0)
-					
-					#scale the model weights and add to list
-					scaling_factor = weight_scalling_factor(self.clients_batched, client)
-					scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
-					scaled_local_weight_list.append(scaled_weights)
-					
-					#clear session to free memory after each communication round
-					K.clear_session()
-					
-			#to get the average over all the local model, we simply take the sum of the scaled weights
-			average_weights = sum_scaled_weights(scaled_local_weight_list)
-			
-			#update global model 
-			self.global_model.set_weights(average_weights)
-
-
-
-	# 		#test global model and print out metrics after each communications round
-	# 		for(self.X_test, self.Y_test) in self.test_batched:
-	# 				global_acc, global_loss = test_model(self.X_test, self.Y_test, self.global_model, comm_round)
-	# 				SGD_dataset = tf.data.Dataset.from_tensor_slices((self.X_train, self.y_train)).shuffle(len(self.y_train)).batch(320)
-
-	
-		# self.SGD_model.compile(
-		# 	loss=loss, 
-		# 	optimizer=optimizer, 
-		# 	metrics=metrics)
-
-		# # fit the SGD training data to model
-		# _ = self.SGD_model.fit(SGD_dataset, epochs=100, verbose=0)
-
-		# #test the SGD global model and print out metrics
-		# for(self.X_test, self.Y_test) in self.test_batched:
-		# 				SGD_acc, SGD_loss = test_model(self.X_test, self.Y_test, self.SGD_model, 1)
-
-
-
-	def validate(self):
-
-					
-		# get the global model's weights - will serve as the initial weights for all local models
-		global_weights = self.global_model.get_weights()
-		
-		#initial list to collect local model weights after scalling
-		scaled_local_weight_list = list()
-
-		#randomize client data - using keys
-		client_names= list(self.clients_batched.keys())
-
-		
-		#loop through each client and create new local model
-		for client in client_names:
 				smlp_local = MLP_classifier()
 				local_model = smlp_local.build(self.feature_dim, 2)
 				local_model.compile(
@@ -377,26 +348,181 @@ class FederatedLearner():
 				#set local model weight to the weight of the global model
 				local_model.set_weights(global_weights)
 
-				# print('\nself.clients_batched[client]\n', self.clients_batched[client], '\n')
+				# print('\n******************\n', self.clients_batched[client])
 
-				#fit local model with client's data
-				local_model.fit(self.clients_batched[client], epochs=1, verbose=0)
+				# #fit local model with client's data
+				# local_model.fit(self.clients_batched[client], epochs=4, verbose=1)
+
+				for local_epoch in range(4):
+
+					for features, true_labels in self.clients_batched[client]:
+					
+						local_model.fit(features, true_labels, verbose=0)
+
+						# print('\n****************************   local_epoch ' + str(local_epoch) + '\n')
+						# print(features.shape)
+						# print('\n****************************\n')
+
+
 				
+
 				#scale the model weights and add to list
 				scaling_factor = weight_scalling_factor(self.clients_batched, client)
 				scaled_weights = scale_model_weights(local_model.get_weights(), scaling_factor)
 				scaled_local_weight_list.append(scaled_weights)
 				
-				#clear session to free memory after each communication round
-				K.clear_session()
-				
-		#to get the average over all the local model, we simply take the sum of the scaled weights
-		average_weights = sum_scaled_weights(scaled_local_weight_list)
+
+			if self.train_epoch % 5 == 0:
+
+				# print('-----------------')
+				# print(local_model.evaluate(self.clients_batched, return_dict=True))
+				# print('-----------------')
+
+
+				result_df_test_dummy = pd.DataFrame(self.validate('test'))
+				print('\nclassification results on validation set for target: ', self.target_label, '\n', pd.DataFrame(self.roc_df).round(2), '\n')
+
+				result_df_train_dummy = pd.DataFrame(self.validate('train'))
+				print('\nclassification results on training set for target: ', self.target_label, '\n', pd.DataFrame(self.roc_df).round(2), '\n')
+
+				if self.train_epoch == 0:
+
+					self.result_df_test = result_df_test_dummy['ce_loss']
+					self.result_df_train = result_df_train_dummy['ce_loss']
+
+				else:
+
+					self.result_df_test =  pd.concat(
+						[self.result_df_test, result_df_test_dummy['ce_loss']],
+						axis = 1)
+
+					self.result_df_train =  pd.concat(
+						[self.result_df_train, result_df_train_dummy['ce_loss']],
+						axis = 1)
+
+				# print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+				# print(self.result_df_test)
+				# print('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+
+				if self.train_epoch > 0:
+
+					result_array_train = np.asarray(self.result_df_train.values)
+					plt.figure()
+					for i in range(result_array_train.shape[0]-1):
+						plt.plot(result_array_train[i,:])
+					plt.plot(result_array_train[-1,:], label='total')
+					plt.yscale('log')
+					plt.grid()
+					plt.savefig(self.figure_path + 'loss_train_epoch_' + str(self.train_epoch) + '.pdf')
+					plt.close()
+
+					result_array_test = np.asarray(self.result_df_test.values)
+					plt.figure()
+					for i in range(result_array_test.shape[0]-1):
+						plt.plot(result_array_test[i,:])
+					plt.plot(result_array_test[-1,:], label='total')
+					plt.yscale('log')
+					plt.grid()
+					plt.savefig(self.figure_path + 'loss_test_epoch_' + str(self.train_epoch) + '.pdf')
+					plt.close()
+
+					
+			#to get the average over all the local model, we simply take the sum of the scaled weights
+			average_weights = sum_scaled_weights(scaled_local_weight_list)
+			
+			#update global model 
+			self.global_model.set_weights(average_weights)
+
+			self.train_epoch += 1
+
+			#clear session to free memory after each communication round
+			K.clear_session()
+
+
+	def validate(self, mode):
+
+		if mode == 'test':
+			batched_client_data = self.clients_batched_test
+		if mode == 'train':
+			batched_client_data = self.clients_batched
+
+
+	
+
+		# get the global model's weights - will serve as the initial weights for all local models
+		global_weights = self.global_model.get_weights()
 		
-		#update global model 
-		self.global_model.set_weights(average_weights)
+		#initial list to collect local model weights after scalling
+		scaled_local_weight_list = list()
+
+		#randomize client data - using keys
+		client_names = list(batched_client_data.keys())
 
 
+
+		plt.figure(figsize=(16,16))
+		plt.title('Classifier ROC ' + self.target_label)
+		plt.plot([0,1],[0,1],'r--')
+
+		self.roc_df = []
+		total_result_dummy = 0
+		#loop through each client and create new local model
+		for client in client_names:
+			
+			# result_dummy, label_dummy = [0], [0]
+			client_result_dummy = 0
+
+			for features, true_labels in batched_client_data[client]:
+
+				if client_result_dummy == 0:
+
+					result_dummy = np.reshape(np.asarray(self.global_model.predict(features)), (-1,2))
+
+					label_dummy = np.reshape(np.asarray(true_labels), (-1,2))
+
+					client_result_dummy += 1
+
+				else:
+
+					result_dummy0 = np.reshape(np.asarray(self.global_model.predict(features)), (-1,2))
+					result_dummy = np.concatenate((result_dummy, result_dummy0), axis=0)
+
+					label_dummy0 = np.reshape(np.asarray(true_labels), (-1,2))
+					label_dummy = np.concatenate((label_dummy, label_dummy0), axis=0)
+
+
+			result_dummy = np.reshape(np.ravel(np.asarray(result_dummy)), (-1,2))
+			label_dummy = np.reshape(np.ravel(np.asarray(label_dummy)), (-1,2))
+
+			print('\nresult dimensions:\n', result_dummy.shape, label_dummy.shape)
+
+			if total_result_dummy == 0:
+				result_cache = result_dummy
+				label_cache = label_dummy
+				total_result_dummy += 1
+			else:
+				result_cache = np.concatenate((result_cache, result_dummy), axis=0)
+				label_cache = np.concatenate((label_cache, label_dummy), axis=0)
+
+
+			self.roc_analysis(result_dummy, label_dummy, client)
+
+		self.roc_analysis(result_cache, label_cache, 'total')
+
+		plt.legend(loc='lower right')
+		plt.xlim([0., 1.])
+		plt.ylim([0., 1.])
+		plt.ylabel('True Positive Rate')
+		plt.xlabel('False Positive Rate')
+		plt.grid()
+		plt.savefig(self.figure_path + 'classification_' + mode + '/' + self.target_label + '_epoch_' + str(self.train_epoch) + '.pdf')
+		plt.close()
+
+		return self.roc_df
+
+
+
+	
 	def test_the_model(self, X_test, Y_test,  model, comm_round):
 
 		cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
@@ -413,6 +539,112 @@ class FederatedLearner():
 		print('comm_round: {} | global_acc: {:.3%} | global_loss: {}'.format(comm_round, acc, loss))
 
 		return acc, loss
+
+	def roc_analysis(self, predictions, y_true, client_tag, set_recall = .9):
+
+		def make_ints(input):
+			return int(input)
+		int_maker = np.vectorize(make_ints)
+
+		y_true = y_true[:,0]
+		y_true = np.reshape(y_true, (-1,1))
+		y_true = int_maker(y_true)
+
+		predictions = predictions[:,0]
+		predictions = np.reshape(predictions, (-1,1))
+
+		try:
+			cross_entropy_loss = log_loss(y_true, predictions)
+		except ValueError:
+			cross_entropy_loss = 1.
+
+		# cross_entropy_loss = log_loss(y_true, predictions)
+
+		fp_rate, tp_rate, thresholds = roc_curve(y_true, predictions)
+		roc_auc = auc(fp_rate, tp_rate)
+
+		roc_dummy = pd.DataFrame({
+			'fp_rate': fp_rate,
+			'tp_rate': tp_rate,
+			'threshold': thresholds,
+			'tp_dummy': tp_rate,
+			})
+
+		roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] > set_recall] = 0.
+		roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] < roc_dummy['tp_dummy'].max()] = 0.
+		roc_dummy['tp_dummy'] /= roc_dummy['tp_dummy'].max()
+		roc_dummy = np.asarray(roc_dummy['threshold'].loc[roc_dummy['tp_dummy'] > .5].values)
+		
+		if roc_dummy.shape[0] > 1: roc_dummy = roc_dummy[0]
+
+		recall_threshold = roc_dummy
+
+		predictions_binary = predictions
+		predictions_binary[predictions_binary >= recall_threshold] = 1.
+		predictions_binary[predictions_binary < recall_threshold] = 0.
+
+		num_true_positives = np.sum(np.abs(predictions_binary) * np.abs(y_true))
+		num_false_positives = np.sum(np.abs(predictions_binary) * np.abs(1. - y_true))
+		num_true_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(1. - y_true))
+		num_false_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(y_true))
+
+		num_total_positives = num_true_positives + num_false_negatives + 1e-5
+		num_total_negatives = num_true_negatives + num_false_positives + 1e-5
+
+		num_total_positives_predicted = np.sum(np.abs(predictions_binary))
+
+		recall = num_true_positives / num_total_positives
+		selectivity = num_true_negatives / num_total_negatives
+		precision = num_true_positives / (num_true_positives + num_false_positives)
+		accuracy = (num_true_positives + num_true_negatives) / (num_total_positives + num_total_negatives)
+		f1score = (2 * num_true_positives) / (2 * num_true_positives + num_false_positives + num_false_negatives)
+		informedness = recall + selectivity - 1.
+
+		self.roc_df.append({
+			'client': client_tag,
+			'ce_loss': cross_entropy_loss,
+			'epoch': self.train_epoch,
+			'auroc': roc_auc,
+			'recall': recall,
+			'selectivity': selectivity,
+			'precision': precision,
+			'accuracy': accuracy,
+			'f1score': f1score,
+			'informedness': informedness,
+			'#TP': num_true_positives,
+			'#FP': num_false_positives,
+			'#TN': num_true_negatives,
+			'#FN': num_false_negatives,
+			'#Total': num_total_positives + num_total_negatives,
+			})
+
+
+		try: 
+			os.makedirs(self.figure_path + 'classification_train/')
+			os.makedirs(self.figure_path + 'classification_test/')
+		except FileExistsError: pass
+
+		# plt.figure()
+		# plt.title('Classifier ROC ' + self.target_label)
+
+		if client_tag == 'total':
+			lineW = 5
+		else:
+			lineW = 2
+		
+		plt.plot(fp_rate, tp_rate, label = 'client ' + str(client_tag) + '   auroc: ' + str(np.round(roc_auc, 2)), linewidth=lineW)
+
+		# plt.plot([0,1],[0,1],'r--')
+		# plt.legend(loc='lower right')
+		# plt.xlim([0., 1.])
+		# plt.ylim([0., 1.])
+		# plt.ylabel('True Positive Rate')
+		# plt.xlabel('False Positive Rate')
+		# plt.grid()
+		# plt.savefig(self.figure_path + 'classification_roc/' + self.target_label + '_client_' + str(client) + '_epoch_' + str(self.train_epoch) + '.pdf')
+		# plt.close()
+
+
 
 FL_network = FederatedLearner(target_label, datapath_processed, federated_path)
 

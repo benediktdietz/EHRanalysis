@@ -27,6 +27,9 @@ class eICU_DataLoader():
 		patient_table = patient_table.loc[patient_table['age'] != 'NaN']
 		patient_table = patient_table.loc[patient_table['age'] != 'nan']
 		patient_table = patient_table.loc[patient_table['gender'] != 'Unknown']
+
+		patient_table.sort_values('hospitalid', ascending=True)
+
 		print('\n\n')
 		print('patient_table loaded successfully'.ljust(50) + str(np.round(len(patient_table)/1000000., 1)) + ' Mio rows | ' + str(int(patient_table.shape[1])) + ' cols')
 		# medication_table = pd.read_csv(self.read_path + 'medication.csv', low_memory=False)
@@ -73,6 +76,10 @@ class eICU_DataLoader():
 				train_patient_ids = patientIDs[train_index]
 				test_patient_ids = patientIDs[test_index]
 		print('dataset split for training (' + str(len(train_patient_ids)) + ' patients) and validation (' + str(len(test_patient_ids)) + ' patients)\n\n')
+
+
+		# patientIDs = patient_table['uniquepid'].unique()[:num_patients_to_load]
+
 
 		# data_df = []
 		corr_id_df = []
@@ -292,6 +299,8 @@ class DataProcessor():
 		self.read_path = read_path
 		self.write_path = write_path
 
+		self.min_patients_per_client = 1000
+
 		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 
 		categorical_feature_names = [
@@ -334,8 +343,11 @@ class DataProcessor():
 		
 
 		self.process_array_cols(array_features)
-		self.consolidate_previous_ICUs()
+		# self.consolidate_previous_ICUs()
 		self.add_hospital_stats()
+
+		self.df_onehot = self.df_onehot.loc[self.df_onehot['num_patients'] >= self.min_patients_per_client]
+
 
 		self.make_federated_sets()
 		
@@ -617,9 +629,6 @@ class DataProcessor():
 
 		self.df_onehot.to_csv(self.write_path[:-4] + '_consolidated.csv')
 
-
-
-
 	def add_hospital_stats(self):
 
 		clinic_stats_df = []
@@ -629,8 +638,11 @@ class DataProcessor():
 
 		for clinic_id in self.dataframe['hospital_id'].unique():
 
+			print('*****************', len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]))
+
 			clinic_stats_df.append({
 				'hospital_id': clinic_id,
+				'num_patients': len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]),
 				'will_die_mean': self.dataframe['will_die'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
 				'will_readmit_mean': self.dataframe['will_readmit'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
 				'will_return_mean': self.dataframe['will_return'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
@@ -655,6 +667,7 @@ class DataProcessor():
 		print('\nattaching hospital stats dataframe to feature map...')
 		pbar = tqdm(total=len(self.df_onehot['corr_id'].unique()))
 
+		self.df_onehot['num_patients'] = 0.
 		self.df_onehot['will_die_mean'] = 0.
 		self.df_onehot['will_readmit_mean'] = 0.
 		self.df_onehot['will_return_mean'] = 0.
@@ -672,6 +685,9 @@ class DataProcessor():
 
 			hospital_id_dummy = self.df_onehot['hospital_id'].loc[self.df_onehot['corr_id'] == stay_id].values.item()
 
+			dummy = clinic_stats_df['num_patients'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			self.df_onehot['num_patients'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+	
 			dummy = clinic_stats_df['will_die_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
 			self.df_onehot['will_die_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
@@ -714,6 +730,9 @@ class DataProcessor():
 		except FileExistsError: pass
 
 		for hospital_number in self.df_onehot['hospital_id'].unique():
+
+			print('saving data for hospital ' + str(hospital_number))
+			print('shape: ', np.asarray(self.df_onehot[self.df_onehot['hospital_id'] == hospital_number]).shape, '\n----------------------')
 
 			self.df_onehot[self.df_onehot['hospital_id'] == hospital_number].to_csv('../mydata/federated/hospital_' + str(hospital_number) + '.csv')
 
@@ -830,8 +849,8 @@ class DataManager():
 
 		self.data_df.fillna(0.)
 
-
-		# self.check_data()
+		print('\n\n\n###############################\nchecking data sample....\n\n')
+		self.check_data()
 
 		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
 
