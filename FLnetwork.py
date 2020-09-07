@@ -39,7 +39,7 @@ NUM_EPOCHS = 10
 BATCH_SIZE = 10
 PREFETCH_BUFFER = 2
 
-OUTPATH = '../results/fed_net_new7/'
+OUTPATH = '../results/fed_net_new8/'
 
 
 def create_tf_dataset_for_client_fn(client_id):
@@ -311,14 +311,14 @@ class FederatedLearner():
 	def train(self):
 					
 		#create optimizer
-		lr = 0.001 
+		lr = 0.0001 
 		loss='categorical_crossentropy'
 		metrics = ['accuracy']
-		# optimizer = SGD(
-		# 	lr=lr, 
-		# 	decay=lr / self.traing_rounds, 
-		# 	momentum=0.9)
-		optimizer = Adam(learning_rate = 1e-5)
+		optimizer = SGD(
+			lr=lr, 
+			decay=lr / self.traing_rounds, 
+			momentum=0.9)
+		# optimizer = Adam(learning_rate = 1e-5)
 										 
 		#commence global training loop
 		for comm_round in range(self.traing_rounds):
