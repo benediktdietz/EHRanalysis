@@ -9,18 +9,26 @@ from sklearn.ensemble import IsolationForest
 from tqdm import tqdm
 
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
-result_path = '../results/data_stats/'
+result_path = '../data_stats/'
 
 class eICU_DataLoader():
 
-
-	def __init__(self, read_path, write_path):
+	def __init__(self, read_path, write_path, num_patients=-1):
 
 		self.read_path = read_path
 		self.write_path = write_path
 
+		self.num_patients = num_patients
 
-	def get_processed_dataframe(self, num_patients):
+		patient_data_filename = 'eICU_patient_table'
+		try:
+			self.dataframe_patients = pd.read_csv(self.write_path + patient_data_filename + '.csv')
+		except FileNotFoundError:
+			self.dataframe_patients = self.get_processed_dataframe(filename=patient_data_filename)
+		
+		self.dataframe_hospitals = self.add_hospital_stats()
+
+	def get_processed_dataframe(self, filename='eICU_patient_table'):
 
 		try: 
 			os.makedirs(self.write_path)
@@ -35,31 +43,28 @@ class eICU_DataLoader():
 
 		patient_table.sort_values('hospitalid', ascending=True)
 
-		if num_patients < 0:
+		if self.num_patients < 0:
 			num_patients_to_load = len(patient_table['uniquepid'].unique())
 		else:
-			num_patients_to_load = num_patients
+			num_patients_to_load = self.num_patients
 
 		patientIDs = patient_table['uniquepid'].unique()[:num_patients_to_load]
 
-		# data_df = []
-		corr_id_df = []
 
 		print('looping through patient IDs in loaded tables to build a consolidated matrix...')
 		pbarfreq = 10
 		# pbar = tqdm(total=int(np.floor(num_patients_to_load/pbarfreq)))
-		pbar = tqdm(total=num_patients_to_load)
+		pbar = tqdm(total=num_patients_to_load + 1)
 
+		patient_dataframe = []
 
 		for i in range(num_patients_to_load):
 
 			if i % pbarfreq == 0: pbar.update(pbarfreq)
 
 			patient = patientIDs[i]
-
 			correlated_unitstay_ids = np.asarray(patient_table['patientunitstayid'].loc[patient_table['uniquepid'] == patient].values)
 
-			# corr_id_df = []
 			for j in range(len(correlated_unitstay_ids)):
 
 
@@ -136,7 +141,7 @@ class eICU_DataLoader():
 
 
 
-				corr_id_df.append(
+				patient_dataframe.append(
 					{
 					'patient_id': patient,
 					'health_system_id': current_health_sys_id,
@@ -169,55 +174,81 @@ class eICU_DataLoader():
 					'unit_stay_type': patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
 					})
 
-
 		pbar.close()
 		print('\n')
 
-		pd.DataFrame(corr_id_df).to_csv(self.write_path + 'eICU_data_stats.csv')
+		pd.DataFrame(patient_dataframe).to_csv(self.write_path + filename + '.csv')
 		
-		return pd.DataFrame(corr_id_df)
+		return pd.DataFrame(patient_dataframe)
 		
-
-	def add_hospital_stats(self):
+	def add_hospital_stats(self, filename='eICU_hospital_table'):
 
 		clinic_stats_df = []
 
 		print('\nbuilding hospital stats dataframe...')
-		pbar = tqdm(total=len(self.dataframe['hospital_id'].unique()))
+		pbar = tqdm(total=len(self.dataframe_patients['hospital_id'].unique())+1)
 
-		for clinic_id in self.dataframe['hospital_id'].unique():
-
+		for clinic_id in self.dataframe_patients['hospital_id'].unique():
 
 			clinic_stats_df.append({
 				'hospital_id': clinic_id,
-				'num_patients': len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]),
-				'will_die_mean': self.dataframe['will_die'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_readmit_mean': self.dataframe['will_readmit'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_return_mean': self.dataframe['will_return'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_stay_long_mean': self.dataframe['will_stay_long'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'survive_current_icu_mean': self.dataframe['survive_current_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'unit_readmission_mean': self.dataframe['unit_readmission'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_stay_mean': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_stay_var': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
-				'length_of_icu_mean': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_icu_var': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
+				'num_patients': len(self.dataframe_patients[self.dataframe_patients['hospital_id'] == clinic_id]),
+				'age_mean': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'age_var': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_die_mean': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_die_var': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_readmit_mean': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_readmit_var': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_return_mean': self.dataframe_patients['will_return'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_return_var': self.dataframe_patients['will_return'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_stay_long_mean': self.dataframe_patients['will_stay_long'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_stay_long_var': self.dataframe_patients['will_stay_long'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'survive_current_icu_mean': self.dataframe_patients['survive_current_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'survive_current_icu_var': self.dataframe_patients['survive_current_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'unit_readmission_mean': self.dataframe_patients['unit_readmission'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'unit_readmission_var': self.dataframe_patients['unit_readmission'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'length_of_stay_mean': self.dataframe_patients['length_of_stay'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'length_of_stay_var': self.dataframe_patients['length_of_stay'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'length_of_icu_mean': self.dataframe_patients['length_of_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'length_of_icu_var': self.dataframe_patients['length_of_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
 				})
 
 
 			pbar.update(1)
 		pbar.close()
+		print('\n')
+
+		clinic_stats_df.append({
+				'hospital_id': 0,
+				'num_patients': len(self.dataframe_patients),
+				'age_mean': self.dataframe_patients['age'].mean(),
+				'age_var': self.dataframe_patients['age'].var(),
+				'will_die_mean': self.dataframe_patients['will_die'].mean(),
+				'will_die_var': self.dataframe_patients['will_die'].var(),
+				'will_readmit_mean': self.dataframe_patients['will_readmit'].mean(),
+				'will_readmit_var': self.dataframe_patients['will_readmit'].var(),
+				'will_return_mean': self.dataframe_patients['will_return'].mean(),
+				'will_return_var': self.dataframe_patients['will_return'].var(),
+				'will_stay_long_mean': self.dataframe_patients['will_stay_long'].mean(),
+				'will_stay_long_var': self.dataframe_patients['will_stay_long'].var(),
+				'survive_current_icu_mean': self.dataframe_patients['survive_current_icu'].mean(),
+				'survive_current_icu_var': self.dataframe_patients['survive_current_icu'].var(),
+				'unit_readmission_mean': self.dataframe_patients['unit_readmission'].mean(),
+				'unit_readmission_var': self.dataframe_patients['unit_readmission'].var(),
+				'length_of_stay_mean': self.dataframe_patients['length_of_stay'].mean(),
+				'length_of_stay_var': self.dataframe_patients['length_of_stay'].var(),
+				'length_of_icu_mean': self.dataframe_patients['length_of_icu'].mean(),
+				'length_of_icu_var': self.dataframe_patients['length_of_icu'].var(),
+				})
+
 
 		clinic_stats_df = pd.DataFrame(clinic_stats_df)
-		clinic_stats_df.to_csv('clinic_stats.csv')
-		clinic_stats_df.reset_index(drop=True)
+		clinic_stats_df.to_csv(self.write_path + filename + '.csv')
+		# clinic_stats_df.reset_index(drop=True)
 
-
+		return clinic_stats_df
 	
+eICUdata = eICU_DataLoader(eICU_path, result_path, num_patients=-1)
 
-
-
-eICU = eICU_DataLoader(eICU_path, result_path)
-
-dataframe = eICU.get_processed_dataframe(num_patients=-1)
-
-print('\n\nfetched data:\n', dataframe)
+print('\n\nfetched data patients:\n', eICU.dataframe_patients, '\n\n******************\n')
+print('\n\nfetched data hospitals:\n', eICU.dataframe_hospitals, '\n\n******************\n')

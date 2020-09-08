@@ -638,7 +638,6 @@ class DataProcessor():
 
 		for clinic_id in self.dataframe['hospital_id'].unique():
 
-			print('*****************', len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]))
 
 			clinic_stats_df.append({
 				'hospital_id': clinic_id,
