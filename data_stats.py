@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from sklearn.ensemble import IsolationForest
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
 result_path = '../data_stats/'
@@ -21,13 +22,20 @@ class eICU_DataLoader():
 		self.num_patients = num_patients
 
 		patient_data_filename = 'eICU_patient_table'
+		hospital_data_filename = 'eICU_hospital_table'
+
 		try:
 			self.dataframe_patients = pd.read_csv(self.write_path + patient_data_filename + '.csv')
 		except FileNotFoundError:
 			self.dataframe_patients = self.get_processed_dataframe(filename=patient_data_filename)
 		
-		self.dataframe_hospitals = self.add_hospital_stats()
+		try:
+			self.dataframe_hospitals = pd.read_csv(self.write_path + hospital_data_filename + '.csv')
+		except FileNotFoundError:
+			self.dataframe_hospitals = self.get_hospital_stats(filename=hospital_data_filename)
 
+		self.get_hospital_plots()
+		
 	def get_processed_dataframe(self, filename='eICU_patient_table'):
 
 		try: 
@@ -181,7 +189,7 @@ class eICU_DataLoader():
 		
 		return pd.DataFrame(patient_dataframe)
 		
-	def add_hospital_stats(self, filename='eICU_hospital_table'):
+	def get_hospital_stats(self, filename='eICU_hospital_table'):
 
 		clinic_stats_df = []
 
@@ -218,28 +226,28 @@ class eICU_DataLoader():
 		pbar.close()
 		print('\n')
 
-		clinic_stats_df.append({
-				'hospital_id': 0,
-				'num_patients': len(self.dataframe_patients),
-				'age_mean': self.dataframe_patients['age'].mean(),
-				'age_var': self.dataframe_patients['age'].var(),
-				'will_die_mean': self.dataframe_patients['will_die'].mean(),
-				'will_die_var': self.dataframe_patients['will_die'].var(),
-				'will_readmit_mean': self.dataframe_patients['will_readmit'].mean(),
-				'will_readmit_var': self.dataframe_patients['will_readmit'].var(),
-				'will_return_mean': self.dataframe_patients['will_return'].mean(),
-				'will_return_var': self.dataframe_patients['will_return'].var(),
-				'will_stay_long_mean': self.dataframe_patients['will_stay_long'].mean(),
-				'will_stay_long_var': self.dataframe_patients['will_stay_long'].var(),
-				'survive_current_icu_mean': self.dataframe_patients['survive_current_icu'].mean(),
-				'survive_current_icu_var': self.dataframe_patients['survive_current_icu'].var(),
-				'unit_readmission_mean': self.dataframe_patients['unit_readmission'].mean(),
-				'unit_readmission_var': self.dataframe_patients['unit_readmission'].var(),
-				'length_of_stay_mean': self.dataframe_patients['length_of_stay'].mean(),
-				'length_of_stay_var': self.dataframe_patients['length_of_stay'].var(),
-				'length_of_icu_mean': self.dataframe_patients['length_of_icu'].mean(),
-				'length_of_icu_var': self.dataframe_patients['length_of_icu'].var(),
-				})
+		# clinic_stats_df.append({
+		# 		'hospital_id': 0,
+		# 		'num_patients': len(self.dataframe_patients),
+		# 		'age_mean': self.dataframe_patients['age'].mean(),
+		# 		'age_var': self.dataframe_patients['age'].var(),
+		# 		'will_die_mean': self.dataframe_patients['will_die'].mean(),
+		# 		'will_die_var': self.dataframe_patients['will_die'].var(),
+		# 		'will_readmit_mean': self.dataframe_patients['will_readmit'].mean(),
+		# 		'will_readmit_var': self.dataframe_patients['will_readmit'].var(),
+		# 		'will_return_mean': self.dataframe_patients['will_return'].mean(),
+		# 		'will_return_var': self.dataframe_patients['will_return'].var(),
+		# 		'will_stay_long_mean': self.dataframe_patients['will_stay_long'].mean(),
+		# 		'will_stay_long_var': self.dataframe_patients['will_stay_long'].var(),
+		# 		'survive_current_icu_mean': self.dataframe_patients['survive_current_icu'].mean(),
+		# 		'survive_current_icu_var': self.dataframe_patients['survive_current_icu'].var(),
+		# 		'unit_readmission_mean': self.dataframe_patients['unit_readmission'].mean(),
+		# 		'unit_readmission_var': self.dataframe_patients['unit_readmission'].var(),
+		# 		'length_of_stay_mean': self.dataframe_patients['length_of_stay'].mean(),
+		# 		'length_of_stay_var': self.dataframe_patients['length_of_stay'].var(),
+		# 		'length_of_icu_mean': self.dataframe_patients['length_of_icu'].mean(),
+		# 		'length_of_icu_var': self.dataframe_patients['length_of_icu'].var(),
+		# 		})
 
 
 		clinic_stats_df = pd.DataFrame(clinic_stats_df)
@@ -248,7 +256,71 @@ class eICU_DataLoader():
 
 		return clinic_stats_df
 	
+	def get_hospital_plots(self):
+
+		scatter_plot_path = self.write_path + 'scatter_plots/'
+		histogram_path = self.write_path + 'histograms/'
+
+		# hospital_id, num_patients, age_mean, age_var, will_die_mean, will_die_var, will_readmit_mean, will_readmit_var, will_return_mean, will_return_var, will_stay_long_mean, will_stay_long_var, survive_current_icu_mean, survive_current_icu_var, unit_readmission_mean, unit_readmission_var, length_of_stay_mean, length_of_stay_var, length_of_icu_mean, length_of_icu_var
+		try: 
+			os.makedirs(scatter_plot_path)
+			os.makedirs(histogram_path)
+		except FileExistsError: pass
+
+		def two_dim_scatter(dataframe, x_label, y_label, z_label, outpath):
+
+			dataframe = dataframe.sort_values('num_patients', ascending=False)
+			dataframe = dataframe[dataframe['num_patients'] > 10]
+
+			plt.figure()
+
+			plt.scatter(dataframe[x_label], dataframe[y_label], c=dataframe[z_label], s=32, alpha=.2, cmap='jet')
+
+			for i in range(len(dataframe)):
+				plt.annotate(dataframe['hospital_id'].iloc[i], (dataframe[x_label].iloc[i], dataframe[y_label].iloc[i]), size=2)
+
+			# plt.legend()
+			plt.colorbar()
+			plt.grid()
+			plt.xlabel(x_label)
+			plt.ylabel(y_label)
+			plt.title('colorbar: ' + z_label)
+
+			plt.savefig(outpath + x_label + '_' + y_label + '_' + z_label + '.pdf')
+			plt.close()
+ 		
+		def histogram_plot(dataframe, x_label, outpath):
+
+			plt.figure()
+
+			plt.title(x_label)
+
+			plt.hist(dataframe[x_label])
+
+			plt.grid()
+			plt.savefig(outpath + x_label +'.pdf')
+			plt.close()
+
+		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'age_var', 'num_patients', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'num_patients', 'will_die_mean', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'will_die_mean', 'will_readmit_mean', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'num_patients', 'will_die_mean', 'age_mean', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'will_die_mean', 'length_of_icu_mean', 'num_patients', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'will_readmit_mean', 'num_patients', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'length_of_icu_var', 'age_var', 'num_patients', scatter_plot_path)
+
+		histogram_plot(self.dataframe_hospitals, 'age_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'age_var', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'will_die_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'length_of_icu_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'length_of_stay_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'will_readmit_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'will_stay_long_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'survive_current_icu_mean', histogram_path)
+		histogram_plot(self.dataframe_hospitals, 'unit_readmission_mean', histogram_path)
+
+
 eICUdata = eICU_DataLoader(eICU_path, result_path, num_patients=-1)
 
-print('\n\nfetched data patients:\n', eICU.dataframe_patients, '\n\n******************\n')
-print('\n\nfetched data hospitals:\n', eICU.dataframe_hospitals, '\n\n******************\n')
+print('\n\nfetched data patients:\n', eICUdata.dataframe_patients, '\n\n******************\n')
+print('\n\nfetched data hospitals:\n', eICUdata.dataframe_hospitals, '\n\n******************\n')

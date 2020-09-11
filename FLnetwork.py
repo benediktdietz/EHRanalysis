@@ -24,16 +24,6 @@ federated_path = '../mydata/federated'
 target_label = 'will_die'
 
 
-# available_datasets = os.listdir(federated_path)
-# if '.DS_Store' in available_datasets: 
-# 	available_datasets.remove('.DS_Store')
-
-# for ii in available_datasets:
-# 	print(ii[9:-4])
-# print('done')
-
-# available_dataset_ids = [int(float(dataid[9:-4])) for dataid in available_datasets]
-
 SHUFFLE_BUFFER = 4
 NUM_EPOCHS = 10
 BATCH_SIZE = 10
@@ -521,8 +511,6 @@ class FederatedLearner():
 		return self.roc_df
 
 
-
-	
 	def test_the_model(self, X_test, Y_test,  model, comm_round):
 
 		cce = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
@@ -539,6 +527,7 @@ class FederatedLearner():
 		print('comm_round: {} | global_acc: {:.3%} | global_loss: {}'.format(comm_round, acc, loss))
 
 		return acc, loss
+
 
 	def roc_analysis(self, predictions, y_true, client_tag, set_recall = .9):
 
