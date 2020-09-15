@@ -18,25 +18,11 @@ from tensorflow.keras import backend as K
 from fl_implementation_utils import *
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
-datapath_processed = '../mydata/nomeds_20k_processed.csv'
-federated_path = '../mydata/federated'
 
-target_label = 'will_die'
-
-
-SHUFFLE_BUFFER = 4
-NUM_EPOCHS = 10
-BATCH_SIZE = 10
-PREFETCH_BUFFER = 2
-
-OUTPATH = '../results/fed_net_new8/'
-
-
-def create_tf_dataset_for_client_fn(client_id):
+def create_tf_dataset_for_client_fn(client_id, federated_path):
 
 	# a function which takes a client_id and returns a
 	# tf.data.Dataset for that client
-
 
 	label_cols = [
 		# doesnt make sense to include or not properly formatted cols
@@ -116,25 +102,29 @@ def create_tf_dataset_for_client_fn(client_id):
 
 	return dataset
 
-
 class MLP_classifier:
 	@staticmethod
-	def build(shape, classes):
+	def build(shape, classes, args):
 		model = Sequential()
 
 		# model.add(BatchNormalization())
-		model.add(Dense(512, input_shape=(shape,)))
-		model.add(Dropout(rate=.2))
+		model.add(Dense(args.layer_width_0, input_shape=(shape,)))
+		model.add(Dropout(rate=.5))
 		model.add(Activation("sigmoid"))
 
 		# model.add(BatchNormalization())
-		model.add(Dense(256))
-		model.add(Dropout(rate=.2))
+		model.add(Dense(args.layer_width_1))
+		model.add(Dropout(rate=.5))
 		model.add(Activation("sigmoid"))
 
 		# model.add(BatchNormalization())
-		model.add(Dense(128))
-		model.add(Dropout(rate=.2))
+		model.add(Dense(args.layer_width_2))
+		model.add(Dropout(rate=.5))
+		model.add(Activation("sigmoid"))
+
+		# model.add(BatchNormalization())
+		model.add(Dense(args.layer_width_3))
+		model.add(Dropout(rate=.5))
 		model.add(Activation("sigmoid"))
 
 		model.add(Dense(classes))
@@ -145,12 +135,13 @@ class MLP_classifier:
 
 class FederatedLearner():
 
-	def __init__(self, target_label, datapath, datapath_fed):
+	def __init__(self, args):
 
-		self.datapath = datapath
-		self.datapath_fed = datapath_fed
-		self.figure_path = OUTPATH
-		self.target_label = target_label
+		self.args = args
+		self.datapath = self.args.mydata_path_processed
+		self.datapath_fed = self.args.datapath_federated
+		self.figure_path = self.args.outdir
+		self.target_label = self.args.target_label
 
 		filelist = os.listdir(self.datapath_fed)
 		if '.DS_Store' in filelist: 
@@ -166,7 +157,6 @@ class FederatedLearner():
 		self.available_dataset_ids_train = [176]
 		self.available_dataset_ids_test = [73, 122, 188, 176, 165]
 
-		self.traing_rounds = 1000
 		self.train_epoch = 0
 		self.roc_df = []
 		self.result_df_test = []
@@ -203,7 +193,10 @@ class FederatedLearner():
 		# print('\nfeature map dimension: ', self.feature_dim)
 
 		#initialize global model
-		self.global_model = MLP_classifier().build(self.feature_dim, 2)
+		if self.args.network_kind == 'classification':
+			self.global_model = MLP_classifier().build(self.feature_dim, 2, self.args)
+		if self.args.network_kind == 'regression':
+			self.global_model = MLP_classifier().build(self.feature_dim, 1, self.args)
 	
 
 	def get_hospital_clients(self, id_list):
@@ -301,17 +294,17 @@ class FederatedLearner():
 	def train(self):
 					
 		#create optimizer
-		lr = 0.0001 
-		loss='categorical_crossentropy'
-		metrics = ['accuracy']
+		if self.args.network_kind == 'classification':
+			loss=self.args.loss
+			metrics = ['accuracy']
 		optimizer = SGD(
-			lr=lr, 
+			lr=self.args.learning_rate, 
 			decay=lr / self.traing_rounds, 
 			momentum=0.9)
-		# optimizer = Adam(learning_rate = 1e-5)
+		# optimizer = Adam(learning_rate = self.args.learning_rate)
 										 
 		#commence global training loop
-		for comm_round in range(self.traing_rounds):
+		for comm_round in range(self.args.num_gobal_epochs):
 
 			print('training federated round number ' + str(comm_round))
 							
@@ -329,7 +322,12 @@ class FederatedLearner():
 			for client in client_names:
 
 				smlp_local = MLP_classifier()
-				local_model = smlp_local.build(self.feature_dim, 2)
+
+				if self.args.network_kind == 'classification':
+					local_model = smlp_local.build(self.feature_dim, 2, self.args)
+				if self.args.network_kind == 'regression':
+					local_model = smlp_local.build(self.feature_dim, 1, self.args)
+
 				local_model.compile(
 					loss=loss, 
 					optimizer=optimizer,
@@ -362,7 +360,7 @@ class FederatedLearner():
 				scaled_local_weight_list.append(scaled_weights)
 				
 
-			if self.train_epoch % 5 == 0:
+			if self.train_epoch % self.args.validation_freq == 0:
 
 				# print('-----------------')
 				# print(local_model.evaluate(self.clients_batched, return_dict=True))
@@ -632,13 +630,6 @@ class FederatedLearner():
 		# plt.grid()
 		# plt.savefig(self.figure_path + 'classification_roc/' + self.target_label + '_client_' + str(client) + '_epoch_' + str(self.train_epoch) + '.pdf')
 		# plt.close()
-
-
-
-FL_network = FederatedLearner(target_label, datapath_processed, federated_path)
-
-FL_network.train()
-
 
 
 

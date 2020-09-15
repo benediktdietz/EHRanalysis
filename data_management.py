@@ -10,12 +10,12 @@ from tqdm import tqdm
 
 class eICU_DataLoader():
 
-	def __init__(self, read_path, write_path, num_patients = -1):
+	def __init__(self, args):
 
-		self.read_path = read_path
-		self.write_path = write_path
-
-		self.num_patients = num_patients
+		self.args = args
+		self.read_path = self.args.eICU_path
+		self.write_path = self.args.mydata_path
+		self.num_patients = self.args.num_patients_to_load
 
 		self.build_patient_matrix()
 
@@ -219,9 +219,9 @@ class eICU_DataLoader():
 					'gender': patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item(),
 					'data_set_ref': data_set_ref,
 					'age': age_dummy,
-					'weight:': weight_dummy,
-					'height:': height_dummy,
-					'bmi:': bmi_dummy,
+					'weight': weight_dummy,
+					'height': height_dummy,
+					'bmi': bmi_dummy,
 					'ethnicity': ethnicity_dummy,
 					'visit_number': current_visit_number,
 					'icu_admission_time': np.round(np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.), 2),
@@ -302,12 +302,13 @@ class eICU_DataLoader():
 
 class DataProcessor():
 
-	def __init__(self, read_path, write_path):
+	def __init__(self, args):
 
-		self.read_path = read_path
-		self.write_path = write_path
+		self.args = args
+		self.read_path = self.args.mydata_path
+		self.write_path = self.args.mydata_path_processed
 
-		self.min_patients_per_client = 1000
+		self.min_patients_per_client = self.args.min_patients_per_hospital
 
 		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 
@@ -351,7 +352,10 @@ class DataProcessor():
 		
 
 		self.process_array_cols(array_features)
-		# self.consolidate_previous_ICUs()
+		
+		if self.args.integrate_past_cases:
+			self.consolidate_previous_ICUs()
+
 		self.add_hospital_stats()
 
 		self.df_onehot = self.df_onehot.loc[self.df_onehot['num_patients'] >= self.min_patients_per_client]
@@ -650,6 +654,7 @@ class DataProcessor():
 			clinic_stats_df.append({
 				'hospital_id': clinic_id,
 				'num_patients': len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]),
+				'bmi_mean': self.dataframe['bmi'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
 				'will_die_mean': self.dataframe['will_die'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
 				'will_readmit_mean': self.dataframe['will_readmit'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
 				'will_return_mean': self.dataframe['will_return'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
@@ -765,9 +770,10 @@ class DataSetIterator(Dataset):
 
 class DataManager():
 
-	def __init__(self, process_data_path, target_features):
+	def __init__(self, target_features, args):
 
-		self.process_data_path = process_data_path
+		self.args = args
+		self.process_data_path = self.args.mydata_path_processed
 		self.target_features = target_features
 
 		self.scaler_lo_icu = RobustScaler()
@@ -839,7 +845,6 @@ class DataManager():
 			'lab_names',
 			]
 
-		# self.remove_some_outliers()
 		# self.consolidate_previous_ICUs()
 		
 		self.data_df_originial = self.data_df
@@ -860,7 +865,6 @@ class DataManager():
 		self.check_data()
 
 		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
-
 
 	def consolidate_previous_ICUs(self):
 
@@ -1024,7 +1028,7 @@ class DataManager():
 
 		unique_patient_ids = self.data_df['patient_id'].unique()
 
-		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.7, random_state=123)
+		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.args.train_split, random_state=123)
 
 		for train_index, test_index in stratified_splitter.split(
 			np.zeros(len(unique_patient_ids)), 
@@ -1080,60 +1084,64 @@ class DataManager():
 
 		return data_container
 
-	def get_train_data(self, target_label):
+	def get_train_data(self):
 	
 		dummy = pd.concat([
-			self.training_data['y_train'][target_label],
-			1-self.training_data['y_train'][target_label],
+			self.training_data['y_train'][self.args.target_label],
+			1-self.training_data['y_train'][self.args.target_label],
 			], axis=1).values
 		
 		# dummy = self.training_data['y_train'][target_label].values
 		
 		return self.training_data['x_train'], dummy
 
-	def get_test_data(self, target_label):
+	def get_test_data(self):
 	
 		dummy = pd.concat([
-			self.training_data['y_test'][target_label],
-			1-self.training_data['y_test'][target_label],
+			self.training_data['y_test'][self.args.target_label],
+			1-self.training_data['y_test'][self.args.target_label],
 			], axis=1).values
 		
 		# dummy = self.training_data['y_train'][target_label].values
 		
 		return self.training_data['x_test'], dummy
 
-	def get_train_iterator(self, batch_size, target_label):
+	def get_train_iterator(self):
 
-		dummy = pd.concat([
-			self.training_data['y_train'][target_label],
-			1-self.training_data['y_train'][target_label],
-			], axis=1).values
+		if self.args.network_kind == 'classification': 
+			dummy = pd.concat([
+				self.training_data['y_train'][self.args.target_label],
+				1-self.training_data['y_train'][self.args.target_label],
+				], axis=1).values
 		
-		# dummy = self.training_data['y_train'][target_label].values
+		if self.args.network_kind == 'regression': 
+			dummy = self.training_data['y_train'][target_label].values
 		
 		return DataLoader(
 			DataSetIterator(
 				self.training_data['x_train'], 
 				dummy), 
-			batch_size=batch_size, 
+			batch_size=self.args.batch_size, 
 			shuffle=True, 
 			num_workers=0, 
 			drop_last=False)
 
-	def get_test_iterator(self, batch_size, target_label):
+	def get_test_iterator(self):
 
-		dummy = pd.concat([
-			self.training_data['y_test'][target_label],
-			1-self.training_data['y_test'][target_label],
-			], axis=1).values
-
-		# dummy = self.training_data['y_test'][target_label].values
+		if self.args.network_kind == 'classification': 
+			dummy = pd.concat([
+				self.training_data['y_test'][self.args.target_label],
+				1-self.training_data['y_test'][self.args.target_label],
+				], axis=1).values
+		
+		if self.args.network_kind == 'regression': 
+			dummy = self.training_data['y_test'][target_label].values
 
 		return DataLoader(
 			DataSetIterator(
 				self.training_data['x_test'], 
 				dummy), 
-			batch_size=batch_size, 
+			batch_size=self.args.batch_size, 
 			shuffle=True, 
 			num_workers=0, 
 			drop_last=False)
