@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -9,6 +9,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch.optim
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--outdir', type=str, default='run_logs', help='Directory path to save output files. it will be created if not existent.')
+parser.add_argument('--gpu', type=int, default=-1, help='GPU to use, set to -1 if no GPU.')
+parser.add_argument('--monitor', action='store_true', help='Wrap env with gym.wrappers.Monitor.')
+args = parser.parse_args()
 
 
 class RegressionNN(nn.Module):

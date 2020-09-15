@@ -192,6 +192,11 @@ class eICU_DataLoader():
 				hospital_discharge_time = np.abs(patient_table['hospitaldischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
 				icu_discharge_time = np.abs(patient_table['unitdischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
 
+				weight_dummy = np.float(patient_table['admissionweight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
+				height_dummy = np.float(patient_table['admissionheight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) / 100.
+				bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-4)
+
+
 				lengthofstay = hospital_discharge_time
 				lengthofICU = icu_discharge_time
 
@@ -214,6 +219,9 @@ class eICU_DataLoader():
 					'gender': patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item(),
 					'data_set_ref': data_set_ref,
 					'age': age_dummy,
+					'weight:': weight_dummy,
+					'height:': height_dummy,
+					'bmi:': bmi_dummy,
 					'ethnicity': ethnicity_dummy,
 					'visit_number': current_visit_number,
 					'icu_admission_time': np.round(np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.), 2),
