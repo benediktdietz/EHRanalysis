@@ -850,19 +850,19 @@ class DataManager():
 		self.data_df_originial = self.data_df
 
 
-		self.data_df[['length_of_icu', 'length_of_stay']] = np.log(self.data_df[['length_of_icu', 'length_of_stay']])
-		self.data_df[['length_of_icu', 'length_of_stay']] = self.data_df[['length_of_icu', 'length_of_stay']].astype(float)
+		# self.data_df[['length_of_icu', 'length_of_stay']] = np.log(self.data_df[['length_of_icu', 'length_of_stay']])
+		# self.data_df[['length_of_icu', 'length_of_stay']] = self.data_df[['length_of_icu', 'length_of_stay']].astype(float)
 
-		self.scaler_lo_icu.fit(self.data_df['length_of_icu'].values.reshape(-1,1))
-		self.data_df['length_of_icu'] = self.scaler_lo_icu.transform(self.data_df['length_of_icu'].values.reshape(-1,1))
+		# self.scaler_lo_icu.fit(self.data_df['length_of_icu'].values.reshape(-1,1))
+		# self.data_df['length_of_icu'] = self.scaler_lo_icu.transform(self.data_df['length_of_icu'].values.reshape(-1,1))
 
-		self.scaler_lo_hospital.fit(self.data_df['length_of_stay'].values.reshape(-1,1))
-		self.data_df['length_of_stay'] = self.scaler_lo_hospital.transform(self.data_df['length_of_stay'].values.reshape(-1,1))
+		# self.scaler_lo_hospital.fit(self.data_df['length_of_stay'].values.reshape(-1,1))
+		# self.data_df['length_of_stay'] = self.scaler_lo_hospital.transform(self.data_df['length_of_stay'].values.reshape(-1,1))
 
 		self.data_df.fillna(0.)
 
-		print('\n\n\n###############################\nchecking data sample....\n\n')
-		self.check_data()
+		# print('\n\n\n###############################\nchecking data sample....\n\n')
+		# self.check_data()
 
 		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
 
@@ -1028,22 +1028,35 @@ class DataManager():
 
 		unique_patient_ids = self.data_df['patient_id'].unique()
 
-		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.args.train_split, random_state=123)
+		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.args.train_split, random_state=87)
 
-		for train_index, test_index in stratified_splitter.split(
-			np.zeros(len(unique_patient_ids)), 
-			np.zeros(len(unique_patient_ids))):
-				train_patient_ids = unique_patient_ids[train_index]
-				test_patient_ids = unique_patient_ids[test_index]
+		# for train_index, test_index in stratified_splitter.split(
+		# 	np.zeros(len(unique_patient_ids)), 
+		# 	np.zeros(len(unique_patient_ids))):
+		# 		train_patient_ids = unique_patient_ids[train_index]
+		# 		test_patient_ids = unique_patient_ids[test_index]
+
 
 		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
-		feature_map = self.scaler_features.fit_transform(feature_map)
+		# feature_map = self.scaler_features.fit_transform(feature_map)
 		feature_map = np.nan_to_num(feature_map)
 
-		x_training = feature_map[self.data_df['data_set_ref'] == 'training']
-		x_validation = feature_map[self.data_df['data_set_ref'] == 'validation']
-		y_training = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'training']
-		y_validation = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'validation']
+		for train_index, test_index in stratified_splitter.split(
+			np.zeros(feature_map.shape[0]), 
+			np.zeros(feature_map.shape[0])):
+				training_index = train_index
+				testing_index = test_index
+
+
+		# x_training = feature_map[self.data_df['data_set_ref'] == 'training']
+		# x_validation = feature_map[self.data_df['data_set_ref'] == 'validation']
+		# y_training = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'training']
+		# y_validation = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'validation']
+
+		x_training = feature_map[training_index,:]
+		x_validation = feature_map[testing_index,:]
+		y_training = self.data_df[self.target_features].iloc[training_index,:]
+		y_validation = self.data_df[self.target_features].iloc[testing_index,:]
 
 
 		data_container = {
@@ -1053,6 +1066,12 @@ class DataManager():
 				'y_full': self.data_df[self.target_features].values,
 				'y_train': y_training,
 				'y_test': y_validation}
+
+
+		print('\n\nloaded datasets:\nx_train: ', data_container['x_train'].shape)
+		print('x_val: ', data_container['x_test'].shape)
+		print('y_train: ', data_container['y_train'].shape)
+		print('y_val: ', data_container['y_test'].shape, '\n\n')
 
 		return data_container, x_training.shape[1], y_training.shape[1]
 

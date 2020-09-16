@@ -423,10 +423,13 @@ class NetworkTrainer():
 				plt.close()
 
 
-			train_loss_plot = np.asarray(self.train_loss_vec)
-			train_loss_axis = np.arange(self.epoch_counter_train)
-			val_loss_plot = np.asarray(self.val_loss_vec)
-			val_loss_axis = np.asarray(self.epoch_counter_val)
+			self.val_loss_vec.append(validation_loss.detach().numpy())
+			self.epoch_counter_val.append(self.epoch_counter_train)
+
+			train_loss_plot = np.reshape(np.asarray(self.train_loss_vec), (-1,1))
+			train_loss_axis = np.reshape(np.arange(self.epoch_counter_train), (-1,1))
+			val_loss_plot = np.reshape(np.asarray(self.val_loss_vec), (-1,1))
+			val_loss_axis = np.reshape(np.asarray(self.epoch_counter_val), (-1,1))
 
 			plt.figure()
 			plt.plot(val_loss_axis, val_loss_plot, c='orange', label='validation loss', linewidth=4, alpha=.6)
@@ -440,9 +443,6 @@ class NetworkTrainer():
 			plt.savefig(self.outdir + self.target_label + '/training.pdf')
 			plt.close()
 
-
-			self.val_loss_vec.append(validation_loss.detach().numpy())
-			self.epoch_counter_val.append(self.epoch_counter_train)
 
 	def evaluate_training(self, y_true, predictions, train_loss):
 
@@ -789,7 +789,13 @@ class NetworkTrainer():
 						if self.task == 'regression':
 							train_label_cache = np.concatenate((train_label_cache, np.reshape(np.asarray(local_labels[0,:].detach().numpy()), (-1,1))), axis=0)
 							train_prediction_cache = np.concatenate((train_prediction_cache, np.reshape(np.asarray(output.detach().numpy()), (-1,1))), axis=0)
+			
 
+			self.epoch_counter_train += 1
+
+			self.train_loss_vec.append(epoch_loss.detach().numpy())
+			self.last_train_epoch_loss = epoch_loss.detach().numpy()
+		
 
 			if self.epoch_counter_train % self.validation_freq == 0:
 				if self.task == 'classification':
@@ -801,12 +807,8 @@ class NetworkTrainer():
 				
 				self.validate()
 				self.evaluate_training(y_true_train, predictions_train, epoch_loss)
+	
 
-			self.train_loss_vec.append(epoch_loss.detach().numpy())
-			self.last_train_epoch_loss = epoch_loss.detach().numpy()
-			
-
-			self.epoch_counter_train += 1
 
 			pbar.update(1)
 		pbar.close()
