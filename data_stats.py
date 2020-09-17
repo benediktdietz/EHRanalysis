@@ -10,7 +10,7 @@ from tqdm import tqdm
 from matplotlib import pyplot as plt
 
 eICU_path = '../medical_data/eicu/physionet.org/files/eicu-crd/2.0/'
-result_path = '../data_stats/'
+result_path = '../data_stats_16_9/'
 
 class eICU_DataLoader():
 
@@ -148,6 +148,11 @@ class eICU_DataLoader():
 				hospital_id = patient_table['hospitalid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
 
 
+				weight_dummy = np.float(patient_table['admissionweight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
+				height_dummy = np.float(patient_table['admissionheight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) / 100.
+				bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-4)
+
+
 
 				patient_dataframe.append(
 					{
@@ -157,6 +162,9 @@ class eICU_DataLoader():
 					'gender': patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item(),
 					'age': age_dummy,
 					'ethnicity': ethnicity_dummy,
+					'weight': weight_dummy,
+					'height': height_dummy,
+					'bmi': bmi_dummy,
 					'visit_number': current_visit_number,
 					'icu_admission_time': np.round(np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.), 2),
 					'length_of_stay': lengthofstay,
@@ -203,6 +211,10 @@ class eICU_DataLoader():
 				'num_patients': len(self.dataframe_patients[self.dataframe_patients['hospital_id'] == clinic_id]),
 				'age_mean': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
 				'age_var': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'bmi_mean': self.dataframe_patients['bmi'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'bmi_var': self.dataframe_patients['bmi'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'weight_mean': self.dataframe_patients['weight'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'weight_var': self.dataframe_patients['weight'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
 				'will_die_mean': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
 				'will_die_var': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
 				'will_readmit_mean': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
@@ -304,10 +316,11 @@ class eICU_DataLoader():
 		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'age_var', 'num_patients', scatter_plot_path)
 		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'num_patients', 'will_die_mean', scatter_plot_path)
 		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'will_die_mean', 'will_readmit_mean', scatter_plot_path)
-		two_dim_scatter(self.dataframe_hospitals, 'num_patients', 'will_die_mean', 'age_mean', scatter_plot_path)
-		two_dim_scatter(self.dataframe_hospitals, 'will_die_mean', 'length_of_icu_mean', 'num_patients', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'length_of_icu_mean', 'will_die_mean', scatter_plot_path)
 		two_dim_scatter(self.dataframe_hospitals, 'age_mean', 'will_readmit_mean', 'num_patients', scatter_plot_path)
-		two_dim_scatter(self.dataframe_hospitals, 'length_of_icu_var', 'age_var', 'num_patients', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'num_patients', 'will_die_mean', 'length_of_icu_mean', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'num_patients', 'length_of_icu_mean', 'will_readmit_mean', scatter_plot_path)
+		two_dim_scatter(self.dataframe_hospitals, 'num_patients', 'unit_readmission_mean', 'age_mean', scatter_plot_path)
 
 		histogram_plot(self.dataframe_hospitals, 'age_mean', histogram_path)
 		histogram_plot(self.dataframe_hospitals, 'age_var', histogram_path)
