@@ -299,7 +299,7 @@ class DataProcessor():
 		self.read_path = read_path
 		self.write_path = write_path
 
-		self.min_patients_per_client = 1000
+		self.min_patients_per_client = 100
 
 		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 
