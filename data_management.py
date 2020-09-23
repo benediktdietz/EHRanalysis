@@ -194,7 +194,9 @@ class eICU_DataLoader():
 
 				weight_dummy = np.float(patient_table['admissionweight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
 				height_dummy = np.float(patient_table['admissionheight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) / 100.
-				bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-4)
+				bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-6)
+				if bmi_dummy > 200:
+					bmi_dummy = 0.
 
 
 				lengthofstay = hospital_discharge_time
@@ -210,14 +212,19 @@ class eICU_DataLoader():
 				hospital_id = patient_table['hospitalid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
 
 
+				if patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item() == 'Female':
+					gender_dummy = 0.
+				else:
+					gender_dummy = 1.
+
 
 				corr_id_df.append(
 					{
 					'patient_id': patient,
 					'health_system_id': current_health_sys_id,
 					'corr_id': correlated_unitstay_ids[j],
-					'gender': patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item(),
-					'data_set_ref': data_set_ref,
+					'gender': gender_dummy,
+					# 'data_set_ref': data_set_ref,
 					'age': age_dummy,
 					'weight': weight_dummy,
 					'height': height_dummy,
@@ -308,11 +315,7 @@ class DataProcessor():
 		self.read_path = self.args.mydata_path
 		self.write_path = self.args.mydata_path_processed
 
-<<<<<<< HEAD
-		self.min_patients_per_client = 100
-=======
 		self.min_patients_per_client = self.args.min_patients_per_hospital
->>>>>>> 8f503a3160cf691f3840681ecd945b7c381dff20
 
 		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 
@@ -655,21 +658,65 @@ class DataProcessor():
 		for clinic_id in self.dataframe['hospital_id'].unique():
 
 
+			# clinic_stats_df.append({
+			# 	'hospital_id': clinic_id,
+			# 	'num_patients': len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]),
+			# 	'gender_mean': self.dataframe['gender'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'bmi_mean': self.dataframe['bmi'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'will_die_mean': self.dataframe['will_die'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'will_readmit_mean': self.dataframe['will_readmit'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'will_return_mean': self.dataframe['will_return'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'will_stay_long_mean': self.dataframe['will_stay_long'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'survive_current_icu_mean': self.dataframe['survive_current_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'unit_readmission_mean': self.dataframe['unit_readmission'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'length_of_stay_mean': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'length_of_stay_var': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
+			# 	'length_of_icu_mean': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
+			# 	'length_of_icu_var': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
+			# 	})
+
 			clinic_stats_df.append({
 				'hospital_id': clinic_id,
-				'num_patients': len(self.dataframe[self.dataframe['hospital_id'] == clinic_id]),
-				'bmi_mean': self.dataframe['bmi'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_die_mean': self.dataframe['will_die'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_readmit_mean': self.dataframe['will_readmit'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_return_mean': self.dataframe['will_return'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'will_stay_long_mean': self.dataframe['will_stay_long'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'survive_current_icu_mean': self.dataframe['survive_current_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'unit_readmission_mean': self.dataframe['unit_readmission'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_stay_mean': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_stay_var': self.dataframe['length_of_stay'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
-				'length_of_icu_mean': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].mean(),
-				'length_of_icu_var': self.dataframe['length_of_icu'].loc[self.dataframe['hospital_id'] == clinic_id].var(),
+				'num_patients': num_patients_dummy,
+				'gender_mean': self.dataframe_patients['gender'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'age_mean': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).mean(),
+				'age_var': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).var(),
+				'age_std': self.dataframe_patients['age'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).std(),
+				'bmi_mean': self.dataframe_patients['bmi'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).mean(),
+				'bmi_var': self.dataframe_patients['bmi'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).var(),
+				'bmi_std': self.dataframe_patients['bmi'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).std(),
+				'weight_mean': self.dataframe_patients['weight'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).mean(),
+				'weight_var': self.dataframe_patients['weight'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).var(),
+				'weight_std': self.dataframe_patients['weight'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).std(),
+				'height_mean': self.dataframe_patients['height'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).mean(),
+				'height_var': self.dataframe_patients['height'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).var(),
+				'height_std': self.dataframe_patients['height'].loc[self.dataframe_patients['hospital_id'] == clinic_id].replace(0., np.NaN).std(),
+				'will_die_mean': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_die_var': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_die_std': self.dataframe_patients['will_die'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'will_readmit_mean': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_readmit_var': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_readmit_std': self.dataframe_patients['will_readmit'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'will_return_mean': self.dataframe_patients['will_return'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_return_var': self.dataframe_patients['will_return'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_return_std': self.dataframe_patients['will_return'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'will_stay_long_mean': self.dataframe_patients['will_stay_long'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'will_stay_long_var': self.dataframe_patients['will_stay_long'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'will_stay_long_std': self.dataframe_patients['will_stay_long'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'survive_current_icu_mean': self.dataframe_patients['survive_current_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'survive_current_icu_var': self.dataframe_patients['survive_current_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'survive_current_icu_std': self.dataframe_patients['survive_current_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'unit_readmission_mean': self.dataframe_patients['unit_readmission'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'unit_readmission_var': self.dataframe_patients['unit_readmission'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'unit_readmission_std': self.dataframe_patients['unit_readmission'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'length_of_stay_mean': self.dataframe_patients['length_of_stay'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'length_of_stay_var': self.dataframe_patients['length_of_stay'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'length_of_stay_std': self.dataframe_patients['length_of_stay'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
+				'length_of_icu_mean': self.dataframe_patients['length_of_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].mean(),
+				'length_of_icu_var': self.dataframe_patients['length_of_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].var(),
+				'length_of_icu_std': self.dataframe_patients['length_of_icu'].loc[self.dataframe_patients['hospital_id'] == clinic_id].std(),
 				})
+
 
 
 			pbar.update(1)
@@ -683,17 +730,21 @@ class DataProcessor():
 		print('\nattaching hospital stats dataframe to feature map...')
 		pbar = tqdm(total=len(self.df_onehot['corr_id'].unique()))
 
-		self.df_onehot['num_patients'] = 0.
-		self.df_onehot['will_die_mean'] = 0.
-		self.df_onehot['will_readmit_mean'] = 0.
-		self.df_onehot['will_return_mean'] = 0.
-		self.df_onehot['will_stay_long_mean'] = 0.
-		self.df_onehot['survive_current_icu_mean'] = 0.
-		self.df_onehot['unit_readmission_mean'] = 0.
-		self.df_onehot['length_of_stay_mean'] = 0.
-		self.df_onehot['length_of_stay_var'] = 0.
-		self.df_onehot['length_of_icu_mean'] = 0.
-		self.df_onehot['length_of_icu_var'] = 0.
+		# self.df_onehot['num_patients'] = 0.
+		# self.df_onehot['will_die_mean'] = 0.
+		# self.df_onehot['will_readmit_mean'] = 0.
+		# self.df_onehot['will_return_mean'] = 0.
+		# self.df_onehot['will_stay_long_mean'] = 0.
+		# self.df_onehot['survive_current_icu_mean'] = 0.
+		# self.df_onehot['unit_readmission_mean'] = 0.
+		# self.df_onehot['length_of_stay_mean'] = 0.
+		# self.df_onehot['length_of_stay_var'] = 0.
+		# self.df_onehot['length_of_icu_mean'] = 0.
+		# self.df_onehot['length_of_icu_var'] = 0.
+
+		self.df_onehot[clinic_stats_df.keys()] = 0.
+
+
 
 		self.df_onehot.reset_index(drop=True)
 
@@ -701,38 +752,46 @@ class DataProcessor():
 
 			hospital_id_dummy = self.df_onehot['hospital_id'].loc[self.df_onehot['corr_id'] == stay_id].values.item()
 
-			dummy = clinic_stats_df['num_patients'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['num_patients'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			for clinic_key in clinic_stats_df.keys().values:
+
+				if clinic_key != 'hospital_id':
+
+					dummy = clinic_stats_df[clinic_key].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+					self.df_onehot[clinic_key].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+
+
+			# dummy = clinic_stats_df['num_patients'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['num_patients'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 	
-			dummy = clinic_stats_df['will_die_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['will_die_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['will_die_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['will_die_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['will_readmit_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['will_readmit_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['will_readmit_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['will_readmit_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['will_return_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['will_return_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['will_return_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['will_return_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['will_stay_long_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['will_stay_long_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['will_stay_long_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['will_stay_long_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['survive_current_icu_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['survive_current_icu_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['survive_current_icu_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['survive_current_icu_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['unit_readmission_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['unit_readmission_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['unit_readmission_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['unit_readmission_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['length_of_stay_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['length_of_stay_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['length_of_stay_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['length_of_stay_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['length_of_stay_var'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['length_of_stay_var'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['length_of_stay_var'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['length_of_stay_var'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 
-			dummy = clinic_stats_df['length_of_icu_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['length_of_icu_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['length_of_icu_mean'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['length_of_icu_mean'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 			
-			dummy = clinic_stats_df['length_of_icu_var'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-			self.df_onehot['length_of_icu_var'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
+			# dummy = clinic_stats_df['length_of_icu_var'].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+			# self.df_onehot['length_of_icu_var'].loc[self.df_onehot['corr_id'] == stay_id] = dummy
 			
 			pbar.update(1)
 		pbar.close()
@@ -774,11 +833,223 @@ class DataSetIterator(Dataset):
 
 class DataManager():
 
-	def __init__(self, target_features, args):
+	def __init__(self, args):
 
 		self.args = args
+		try:
+			self.process_data_path = self.args.mydata_path_processed
+			self.target_features = self.args.target_label
+			self.train_split = self.args.train_split
+		except AttributeError:
+			self.process_data_path = self.args['mydata_path_processed']
+			self.target_features = self.args['target_label']
+			self.train_split = self.args['train_split']
+
+
+		self.scaler_lo_icu = RobustScaler()
+		self.scaler_lo_hospital = RobustScaler()
+		self.scaler_features = RobustScaler()
+
+		self.data_df = pd.read_csv(self.process_data_path).drop(columns='Unnamed: 0')
+		self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0].fillna(0.)
+
+		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] > 1000.] = 1000.
+		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] < 1.] = 1.
+		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] > 5000.] = 5000.
+		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] < 1.] = 1.
+
+		# self.data_df = self.data_df.loc[self.data_df['num_patients'] >= self.args.min_patients_per_hospital]
+
+		self.label_cols = [
+			# doesnt make sense to include or not properly formatted cols
+			'patient_id',
+			'health_system_id',
+			'corr_id',
+			'data_set_ref',
+			# 'medication_ids',
+			# 'drug_strings_prescribed',
+			# 'drug_codes_prescribed',
+			# 'diagnosis_string',
+			'pasthistory_notetypes',
+			'pasthistory_values',
+			'hospital_discharge_year_2014',
+			'hospital_discharge_year_2015',
+			# labels we want to predict or shouldnt be available for our predictions
+			'length_of_stay',
+			'icu_admission_time',
+			'length_of_icu',
+			'icu_discharge',
+			'diagnosis_offset',
+			'diagnosis_activeUponDischarge',
+			# 'diagnosis_ids',
+			# 'diagnosis_priority',
+			'diagnosis_ICD9code',
+			'unit_discharge_offset',
+			'unit_discharge_status_Alive',
+			'unit_discharge_status_Expired',
+			'unit_discharge_location_Death',
+			'unit_discharge_location_Floor',
+			'unit_discharge_location_Home',
+			# 'unit_discharge_location_Other',
+			'unit_discharge_location_Other External',
+			'unit_discharge_location_Other Hospital',
+			'unit_discharge_location_Other ICU',
+			# 'unit_discharge_location_Rehabilitation',
+			'unit_discharge_location_Skilled Nursing Facility',
+			'unit_discharge_location_Step-Down Unit (SDU)',
+			# 'unit_discharge_location_Telemetry',
+			'unit_stay_type_admit',
+			'unit_stay_type_readmit',
+			'unit_stay_type_stepdown/other',
+			'unit_stay_type_transfer',
+			'hospital_discharge_offset',
+			'hospital_discharge_status_Alive',
+			'hospital_discharge_status_Expired',
+			'will_return',
+			'will_die',
+			'will_readmit',
+			'will_stay_long',
+			'visits_current_stay',
+			'unit_readmission',
+			'survive_current_icu',
+			'lab_type_ids',
+			'lab_names',
+			]
+
+		self.data_container, self.sampling_df = self.split_data()
+
+	def split_data(self):
+
+		unique_patient_ids = self.data_df['patient_id'].unique()
+		unique_hospital_ids = self.data_df['hospital_id'].unique()
+
+		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
+		# feature_map = np.nan_to_num(feature_map)
+		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+
+		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
+		y_full = self.data_df[self.target_features]
+
+		train_ids, val_ids, test_ids = [], [], []
+		train_idx, val_idx, test_idx = [], [], []
+
+		dummyrunner = 0
+
+		sampling_df = []
+
+		for hosp_id in unique_hospital_ids:
+
+			hospital_dummy_df = self.data_df[['hospital_id', 'patient_id', 'corr_id']].loc[self.data_df['hospital_id'] == hosp_id]
+			
+			train_frac, val_frac, test_frac = np.split(
+				hospital_dummy_df['corr_id'].sample(frac=1.), 
+				[
+				int(self.train_split*np.asarray(hospital_dummy_df).shape[0]), 
+				int((1-(.5*(1-self.train_split)))*np.asarray(hospital_dummy_df).shape[0])
+				])
+
+			sampling_df.append({
+				'hospital_id': hosp_id,
+				'train_ids': train_frac,
+				'val_ids': val_frac,
+				'test_ids': test_frac,
+				})
+
+			if dummyrunner == 0:
+				train_ids = np.reshape(train_frac.values, (-1,1))
+				val_ids = np.reshape(val_frac.values, (-1,1))
+				test_ids = np.reshape(test_frac.values, (-1,1))
+				dummyrunner += 1
+			else:
+				train_ids = np.concatenate((train_ids, np.reshape(train_frac.values, (-1,1))), axis=0)
+				val_ids = np.concatenate((val_ids, np.reshape(val_frac.values, (-1,1))), axis=0)
+				test_ids = np.concatenate((test_ids, np.reshape(test_frac.values, (-1,1))), axis=0)
+
+		for i in range(self.data_df.shape[0]):
+
+			if self.data_df['corr_id'].iloc[i] in train_ids:
+				train_idx.append(i)
+			if self.data_df['corr_id'].iloc[i] in val_ids:
+				val_idx.append(i)
+			if self.data_df['corr_id'].iloc[i] in test_ids:
+				test_idx.append(i)
+
+		train_idx = np.reshape(np.asarray(train_idx), (-1))
+		val_idx = np.reshape(np.asarray(val_idx), (-1))
+		test_idx = np.reshape(np.asarray(test_idx), (-1))
+
+		x_train = feature_map.iloc[train_idx,:]
+		x_val = feature_map.iloc[val_idx,:]
+		x_test = feature_map.iloc[test_idx,:]
+
+		y_train = y_full.iloc[train_idx]
+		y_val = y_full.iloc[val_idx]
+		y_test = y_full.iloc[test_idx]
+
+		data_container = {
+			'x_full': feature_map,
+			'x_train': x_train,
+			'x_val': x_val,
+			'x_test': x_test,
+			'y_full': y_full,
+			'y_train': y_train,
+			'y_val': y_val,
+			'y_test': y_test,
+		}
+
+		return data_container, pd.DataFrame(sampling_df)
+
+	def get_full_train_data(self):
+
+		return self.data_container['x_train'].values, self.data_container['y_train'].values
+
+	def get_full_val_data(self):
+
+		return self.data_container['x_val'].values, self.data_container['y_val'].values
+
+	def get_full_test_data(self):
+
+		return self.data_container['x_test'].values, self.data_container['y_test'].values
+
+	def get_full_data_from_hopital(self, hospital_id):
+
+		x_dummy = self.data_container['x_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
+		y_dummy = self.data_container['y_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
+
+		return np.asarray(x_dummy), np.asarray(y_dummy)
+
+	def get_train_data_from_hopital(self, hospital_id):
+
+		x_dummy = self.data_container['x_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
+		y_dummy = self.data_container['y_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
+
+		return np.asarray(x_dummy), np.asarray(y_dummy)
+
+	def get_test_data_from_hopital(self, hospital_id):
+
+		x_dummy = self.data_container['x_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
+		y_dummy = self.data_container['y_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
+
+		return np.asarray(x_dummy), np.asarray(y_dummy)
+
+	def get_val_data_from_hopital(self, hospital_id):
+
+		x_dummy = self.data_container['x_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
+		y_dummy = self.data_container['y_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
+
+		return np.asarray(x_dummy), np.asarray(y_dummy)
+
+
+
+class DataManagerOld():
+
+	def __init__(self, args):
+
+		self.args = args
+		# self.process_data_path = self.args.mydata_path_processed
 		self.process_data_path = self.args.mydata_path_processed
-		self.target_features = target_features
+		self.target_features = self.args.target_label
+		self.train_split = self.args.train_split
 
 		self.scaler_lo_icu = RobustScaler()
 		self.scaler_lo_hospital = RobustScaler()
@@ -849,11 +1120,6 @@ class DataManager():
 			'lab_names',
 			]
 
-		# self.consolidate_previous_ICUs()
-		
-		self.data_df_originial = self.data_df
-
-
 		# self.data_df[['length_of_icu', 'length_of_stay']] = np.log(self.data_df[['length_of_icu', 'length_of_stay']])
 		# self.data_df[['length_of_icu', 'length_of_stay']] = self.data_df[['length_of_icu', 'length_of_stay']].astype(float)
 
@@ -862,11 +1128,6 @@ class DataManager():
 
 		# self.scaler_lo_hospital.fit(self.data_df['length_of_stay'].values.reshape(-1,1))
 		# self.data_df['length_of_stay'] = self.scaler_lo_hospital.transform(self.data_df['length_of_stay'].values.reshape(-1,1))
-
-		self.data_df.fillna(0.)
-
-		# print('\n\n\n###############################\nchecking data sample....\n\n')
-		# self.check_data()
 
 		self.training_data, self.num_input_features, self.num_output_features = self.split_data()
 
@@ -1028,11 +1289,58 @@ class DataManager():
 
 				previous_patient_id = new_patient_id
 
+	def split_data_new(self):
+
+		train, validate, test = np.split(df.sample(frac=1), [int(.6*len(df)), int(.8*len(df))])
+
+
+		unique_patient_ids = self.data_df['patient_id'].unique()
+		unique_hospital_ids = self.data_df['hospital_id'].unique()
+
+		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
+		# feature_map = self.scaler_features.fit_transform(feature_map)
+		feature_map = np.nan_to_num(feature_map)
+
+		for train_index, test_index in stratified_splitter.split(
+			np.zeros(feature_map.shape[0]), 
+			np.zeros(feature_map.shape[0])):
+				training_index = train_index
+				testing_index = test_index
+
+
+		# x_training = feature_map[self.data_df['data_set_ref'] == 'training']
+		# x_validation = feature_map[self.data_df['data_set_ref'] == 'validation']
+		# y_training = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'training']
+		# y_validation = self.data_df[self.target_features].loc[self.data_df['data_set_ref'] == 'validation']
+
+		x_training = feature_map[training_index,:]
+		x_validation = feature_map[testing_index,:]
+		y_training = self.data_df[self.target_features].iloc[training_index,:]
+		y_validation = self.data_df[self.target_features].iloc[testing_index,:]
+
+
+		data_container = {
+				'x_full': self.data_df.drop(columns = self.label_cols).values,
+				'x_train': x_training,
+				'x_test': x_validation,
+				'y_full': self.data_df[self.target_features].values,
+				'y_train': y_training,
+				'y_test': y_validation}
+
+
+		print('\n\nloaded datasets:\nx_train: ', data_container['x_train'].shape)
+		print('x_val: ', data_container['x_test'].shape)
+		print('y_train: ', data_container['y_train'].shape)
+		print('y_val: ', data_container['y_test'].shape, '\n\n')
+
+		return data_container, x_training.shape[1], y_training.shape[1]
+
 	def split_data(self):
 
 		unique_patient_ids = self.data_df['patient_id'].unique()
 
-		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.args.train_split, random_state=87)
+		# stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.args.train_split, random_state=87)
+		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=self.train_split, random_state=87)
 
 		# for train_index, test_index in stratified_splitter.split(
 		# 	np.zeros(len(unique_patient_ids)), 
@@ -1107,11 +1415,33 @@ class DataManager():
 
 		return data_container
 
+	# def get_train_data(self):
+	
+	# 	dummy = pd.concat([
+	# 		self.training_data['y_train'][self.args.target_label],
+	# 		1-self.training_data['y_train'][self.args.target_label],
+	# 		], axis=1).values
+		
+	# 	# dummy = self.training_data['y_train'][target_label].values
+		
+	# 	return self.training_data['x_train'], dummy
+
+	# def get_test_data(self):
+	
+	# 	dummy = pd.concat([
+	# 		self.training_data['y_test'][self.args.target_label],
+	# 		1-self.training_data['y_test'][self.args.target_label],
+	# 		], axis=1).values
+		
+	# 	# dummy = self.training_data['y_train'][target_label].values
+		
+	# 	return self.training_data['x_test'], dummy
+
 	def get_train_data(self):
 	
 		dummy = pd.concat([
-			self.training_data['y_train'][self.args.target_label],
-			1-self.training_data['y_train'][self.args.target_label],
+			self.training_data['y_train'][self.args['target_label']],
+			1-self.training_data['y_train'][self.args['target_label']],
 			], axis=1).values
 		
 		# dummy = self.training_data['y_train'][target_label].values
@@ -1121,8 +1451,8 @@ class DataManager():
 	def get_test_data(self):
 	
 		dummy = pd.concat([
-			self.training_data['y_test'][self.args.target_label],
-			1-self.training_data['y_test'][self.args.target_label],
+			self.training_data['y_test'][self.args['target_label']],
+			1-self.training_data['y_test'][self.args['target_label']],
 			], axis=1).values
 		
 		# dummy = self.training_data['y_train'][target_label].values
