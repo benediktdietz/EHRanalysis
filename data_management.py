@@ -1021,25 +1021,38 @@ class DataManager():
 		for hosp_id in unique_hospital_ids:
 
 			hospital_dummy_df = self.data_df[['hospital_id', 'patient_id', 'corr_id']].loc[self.data_df['hospital_id'] == hosp_id]
+
+			positives_dummy = self.data_df[self.target_features].loc[self.data_df['hospital_id'] == hosp_id]
 			
-			val_frac, test_frac = np.split(
-				hospital_dummy_df['corr_id'].sample(frac=1.), 
-				[int(.5*np.asarray(hospital_dummy_df).shape[0])])
+			try:
+				stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.5, random_state=87)
+				for train_index, test_index in stratified_splitter.split(
+					np.zeros(len(positives_dummy)), 
+					positives_dummy):
+						val_frac = hospital_dummy_df['corr_id'].values[train_index]
+						test_frac = hospital_dummy_df['corr_id'].values[test_index]
+			except ValueError:
+				stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.5, random_state=87)
+				for train_index, test_index in stratified_splitter.split(
+					np.zeros(len(positives_dummy)), 
+					np.zeros(len(positives_dummy))):
+						val_frac = hospital_dummy_df['corr_id'].values[train_index]
+						test_frac = hospital_dummy_df['corr_id'].values[test_index]
 
 			sampling_df.append({
 				'hospital_id': hosp_id,
-				'train_ids': train_frac,
+				# 'train_ids': train_frac,
 				'val_ids': val_frac,
 				'test_ids': test_frac,
 				})
 
 			if dummyrunner == 0:
-				val_ids = np.reshape(val_frac.values, (-1,1))
-				test_ids = np.reshape(test_frac.values, (-1,1))
+				val_ids = np.reshape(val_frac, (-1,1))
+				test_ids = np.reshape(test_frac, (-1,1))
 				dummyrunner += 1
 			else:
-				val_ids = np.concatenate((val_ids, np.reshape(val_frac.values, (-1,1))), axis=0)
-				test_ids = np.concatenate((test_ids, np.reshape(test_frac.values, (-1,1))), axis=0)
+				val_ids = np.concatenate((val_ids, np.reshape(val_frac, (-1,1))), axis=0)
+				test_ids = np.concatenate((test_ids, np.reshape(test_frac, (-1,1))), axis=0)
 
 		for i in range(self.data_df.shape[0]):
 

@@ -32,12 +32,13 @@ from torch.utils.data import TensorDataset, DataLoader
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
 args = {
-	'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
+	# 'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
+	'mydata_path_processed' : '../mydata/processed_data_consolidated.csv',
 	'datapath_processed' : '../mydata/nomeds_20k_processed.csv',
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/FL_24_9_2/',
+	'OUTPATH' : '../results/FL_24_9_5/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
@@ -53,8 +54,9 @@ args = {
 	'predictive_attributes' : ["length_of_stay", "will_die"],
 	'target_attributes' : ["will_die"],
 	'target_label' : "will_die",
-	'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
-	'test_hospital_id' : 140 #'trainNminus1_test1'
+	# 'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
+	'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
+	'test_hospital_id' : 73 #'trainNminus1_test1'
 }
 
 datapath_processed = args["datapath_processed"]
@@ -81,8 +83,9 @@ eICU_data = DataManager(args)
 
 available_client_IDs = eICU_data.sampling_df['hospital_id'].unique()
 print('available_client_IDs: ', available_client_IDs, available_client_IDs.shape, available_client_IDs.dtype)
-available_client_IDs = available_client_IDs[available_client_IDs != args['test_hospital_id']]
-print('available_client_IDs: ', available_client_IDs)
+if args['split_strategy'] == 'trainNminus1_test1':
+	available_client_IDs = available_client_IDs[available_client_IDs != args['test_hospital_id']]
+	print('available_client_IDs: ', available_client_IDs)
 
 
 
@@ -100,6 +103,9 @@ else:
 	for f in fnames:
 		id = int(re.search(r"\d\w+", f).group())
 		client_ids.append(id)
+
+	client_ids = list(available_client_IDs)
+
 	for client_id in client_ids:
 		virtual_workers["hospital_{}".format(client_id)] = sy.VirtualWorker(hook, id="hospital_{}".format(client_id))
 
@@ -128,7 +134,10 @@ fdataloader = sy.FederatedDataLoader(fed_dataset, batch_size=args["batch_size"])
 
 # Load test data
 # x, y = get_data_from_DataManager(args["target_attributes"], args)
-x, y = eICU_data.get_full_test_data()
+if args['split_strategy'] == 'trainN_testN':
+	x, y = eICU_data.get_full_test_data()
+if args['split_strategy'] == 'trainNminus1_test1':
+	x, y = eICU_data.get_test_data_from_hopital(args['test_hospital_id'])
 x_pt = torch.tensor(x, dtype=torch.float32) # transform to torch tensor
 y_pt = torch.tensor(y.squeeze(), dtype=torch.long)
 my_dataset = TensorDataset(x_pt, y_pt) # create your datset
@@ -136,7 +145,10 @@ test_loader = DataLoader(my_dataset, batch_size=10) # create your dataloader
 
 # Load validation data
 # x, y = get_data_from_DataManager(args["target_attributes"], args)
-x, y = eICU_data.get_full_val_data()
+if args['split_strategy'] == 'trainN_testN':
+	x, y = eICU_data.get_full_val_data()
+if args['split_strategy'] == 'trainNminus1_test1':
+	x, y = eICU_data.get_val_data_from_hopital(args['test_hospital_id'])
 x_pt = torch.tensor(x, dtype=torch.float32) # transform to torch tensor
 y_pt = torch.tensor(y.squeeze(), dtype=torch.long)
 my_dataset = TensorDataset(x_pt, y_pt) # create your datset
@@ -204,6 +216,7 @@ def test(model, device, test_loader, epoch, roc_df):
 	test_loss = 0
 	correct = 0
 	dummy = 0
+	softmax = nn.Softmax(dim=1)
 
 	with torch.no_grad():
 		for data, target in test_loader:
@@ -218,21 +231,24 @@ def test(model, device, test_loader, epoch, roc_df):
 			correct += pred.eq(target.view_as(pred)).sum().item()
 
 			if dummy == 0:
-				preds = np.reshape(output.numpy()[:,1], (-1))
+				preds_bin = np.reshape(pred.numpy(), (-1))
+				preds = np.reshape(softmax(output).numpy()[:,1], (-1))
 				labels = np.reshape(target.numpy(), (-1))
 				dummy += 1
 			else:
-				preds = np.concatenate((preds, np.reshape(output.numpy()[:,1], (-1))), axis=0)
+				preds_bin = np.concatenate((preds_bin, np.reshape(pred.numpy(), (-1))), axis=0)
+				preds = np.concatenate((preds, np.reshape(softmax(output).numpy()[:,1], (-1))), axis=0)
 				labels = np.concatenate((labels, np.reshape(target.numpy(), (-1))), axis=0)
 
+	# if args['split_strategy'] != 'trainNminus1_test1':
 	test_loss /= len(test_loader.dataset)
 
+	preds_bin = np.reshape(preds_bin, (-1))
 	preds = np.reshape(preds, (-1))
 	labels = np.reshape(labels, (-1))
 
-	print('\npreds.shape: ', preds.shape, ' labels.shape: ', labels.shape, '\n')
 
-	roc_df = evaluate(labels, preds, test_loss, epoch, roc_df)
+	roc_df = evaluate(labels, preds, preds_bin, test_loss, epoch, roc_df)
 
 	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
 		test_loss, correct, len(test_loader.dataset),
@@ -240,11 +256,9 @@ def test(model, device, test_loader, epoch, roc_df):
 
 	return roc_df
 
-def evaluate(y_true, predictions, validation_loss, epoch_counter_train, roc_df):
+def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_counter_train, roc_df):
   
 	fp_rate, tp_rate, thresholds = roc_curve(y_true, predictions)
-
-	print(fp_rate)
 
 	roc_auc = auc(fp_rate, tp_rate)
 
@@ -268,9 +282,9 @@ def evaluate(y_true, predictions, validation_loss, epoch_counter_train, roc_df):
 
 	recall_threshold = roc_dummy
 
-	predictions_binary = predictions.copy()
-	predictions_binary[predictions_binary >= recall_threshold] = 1.
-	predictions_binary[predictions_binary < recall_threshold] = 0.
+	# predictions_binary = predictions.copy()
+	# predictions_binary[predictions_binary >= recall_threshold] = 1.
+	# predictions_binary[predictions_binary < recall_threshold] = 0.
 
 	num_true_positives = np.sum(np.abs(predictions_binary) * np.abs(y_true))
 	num_false_positives = np.sum(np.abs(predictions_binary) * np.abs(1. - y_true))
@@ -330,6 +344,37 @@ def evaluate(y_true, predictions, validation_loss, epoch_counter_train, roc_df):
 	plt.ylim(50.,100.)
 	plt.legend()
 	plt.savefig(args['OUTPATH'] + args['target_label'] + '/performance.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.scatter(np.arange(len(predictions[y_true == 0])), predictions[y_true == 0], c='darkred', alpha=.4)
+	plt.scatter(np.arange(len(predictions[y_true == 1])), predictions[y_true == 1], c='darkgreen', alpha=.4)
+	plt.grid()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/predictions.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.scatter(np.arange(len(predictions)), predictions, c='darkred', alpha=.4)
+	plt.grid()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/preds.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.scatter(np.arange(len(predictions_binary)), predictions_binary, c='darkred', alpha=.4)
+	plt.grid()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/preds_binary.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.scatter(np.arange(len(y_true)), y_true, c='darkred', alpha=.4)
+	plt.grid()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/y_true.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['val_loss'], c='darkgreen', label='val loss', linewidth=4, alpha=.6)
+	plt.grid()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/val_loss.pdf')
 	plt.close()
 
 	print(pd.DataFrame(roc_df))
