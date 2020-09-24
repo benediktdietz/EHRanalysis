@@ -32,27 +32,29 @@ from torch.utils.data import TensorDataset, DataLoader
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
 args = {
-    'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
-    'datapath_processed' : '../mydata/nomeds_20k_processed.csv',
-    'test_data_path' : '../mydata/federated/hospital_59.csv',
-    'validation_data_path' : '../mydata/federated/hospital_59.csv',
-    'federated_path' : '../mydata/federated',
-    'OUTPATH' : '../results/fed_net_new8/',
-    'train_split' : .7,
-    'create_new_federated_data' : True,
-    'num_of_included_patients' : 20000,
-    'client_ids' : "all", # or 'all' to load all client from the federated_path
-    'n_clients' : 10,
-    'use_cuda' : False,
-    'batch_size' : 16,
-    'test_batch_size' : 1000,
-    'lr' : 0.001,
-    'log_interval' : 10,
-    'epochs' : 10,
-    'task' : 'classification',
-    'predictive_attributes' : ["length_of_stay", "will_die"],
-    'target_attributes' : ["will_die"],
-    'target_label' : ["will_die"]
+	'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
+	'datapath_processed' : '../mydata/nomeds_20k_processed.csv',
+	'test_data_path' : '../mydata/federated/hospital_59.csv',
+	'validation_data_path' : '../mydata/federated/hospital_59.csv',
+	'federated_path' : '../mydata/federated',
+	'OUTPATH' : '../results/FL_24_9_2/',
+	'train_split' : .7,
+	'create_new_federated_data' : True,
+	'num_of_included_patients' : 20000,
+	'client_ids' : "all", # or 'all' to load all client from the federated_path
+	'n_clients' : 10,
+	'use_cuda' : False,
+	'batch_size' : 128,
+	'test_batch_size' : 1000,
+	'lr' : 0.001,
+	'log_interval' : 20,
+	'epochs' : 100,
+	'task' : 'classification',
+	'predictive_attributes' : ["length_of_stay", "will_die"],
+	'target_attributes' : ["will_die"],
+	'target_label' : "will_die",
+	'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
+	'test_hospital_id' : 140 #'trainNminus1_test1'
 }
 
 datapath_processed = args["datapath_processed"]
@@ -68,11 +70,19 @@ device = torch.device("cuda" if use_cuda else "cpu")
 # DataProcessor(mydata_path, mydata_path_processed)
 
 
+try:
+	os.makedirs(args['OUTPATH'] + args['target_label'] + '/')
+	os.makedirs(args['OUTPATH'] + args['target_label'] + '/roc/')
+except FileExistsError: pass
+
 
 
 eICU_data = DataManager(args)
 
-
+available_client_IDs = eICU_data.sampling_df['hospital_id'].unique()
+print('available_client_IDs: ', available_client_IDs, available_client_IDs.shape, available_client_IDs.dtype)
+available_client_IDs = available_client_IDs[available_client_IDs != args['test_hospital_id']]
+print('available_client_IDs: ', available_client_IDs)
 
 
 
@@ -81,17 +91,17 @@ eICU_data = DataManager(args)
 hook = sy.TorchHook(torch)
 virtual_workers = {}
 if type(args["client_ids"]) is list:
-    client_ids =  args["client_ids"]
-    for client_id in client_ids:
-        virtual_workers["hospital_{}".format(client_id)] = sy.VirtualWorker(hook, id="hospital_{}".format(client_id))
+	client_ids =  args["client_ids"]
+	for client_id in client_ids:
+		virtual_workers["hospital_{}".format(client_id)] = sy.VirtualWorker(hook, id="hospital_{}".format(client_id))
 else:
-    client_ids = []
-    fnames = [f for f in listdir(args["federated_path"]) if isfile(join(args["federated_path"], f)) and re.search("hospital", f)]
-    for f in fnames:
-        id = int(re.search(r"\d\w+", f).group())
-        client_ids.append(id)
-    for client_id in client_ids:
-        virtual_workers["hospital_{}".format(client_id)] = sy.VirtualWorker(hook, id="hospital_{}".format(client_id))
+	client_ids = []
+	fnames = [f for f in listdir(args["federated_path"]) if isfile(join(args["federated_path"], f)) and re.search("hospital", f)]
+	for f in fnames:
+		id = int(re.search(r"\d\w+", f).group())
+		client_ids.append(id)
+	for client_id in client_ids:
+		virtual_workers["hospital_{}".format(client_id)] = sy.VirtualWorker(hook, id="hospital_{}".format(client_id))
 
 
 # Make Syft federated dataset
@@ -100,17 +110,17 @@ datasets = []
 
 logging.info("Load federated dataset")
 for client_id in client_ids:
-    tmp_path = federated_path + '/hospital_' + str(client_id) + '.csv'
-    # x, y = get_data_from_DataManager(args["target_attributes"], args)
-    x, y = eICU_data.get_train_data_from_hopital(client_id)
-    client_datapair_dict["hospital_{}".format(client_id)] = (x, y)
+	tmp_path = federated_path + '/hospital_' + str(client_id) + '.csv'
+	# x, y = get_data_from_DataManager(args["target_attributes"], args)
+	x, y = eICU_data.get_train_data_from_hopital(client_id)
+	client_datapair_dict["hospital_{}".format(client_id)] = (x, y)
 #     client_data_list.append((pd.read_csv(federated_path + '/hospital_' + str(client_id) + '.csv')[predictive_attributes], )
 
 for client_id in client_ids:
-    tmp_tuple = client_datapair_dict["hospital_{}".format(client_id)]
-    datasets.append(
-        fl.BaseDataset(torch.tensor(tmp_tuple[0], dtype=torch.float32), torch.tensor(tmp_tuple[1].squeeze(), dtype=torch.long))
-        .send(virtual_workers["hospital_{}".format(client_id)]))
+	tmp_tuple = client_datapair_dict["hospital_{}".format(client_id)]
+	datasets.append(
+		fl.BaseDataset(torch.tensor(tmp_tuple[0], dtype=torch.float32), torch.tensor(tmp_tuple[1].squeeze(), dtype=torch.long))
+		.send(virtual_workers["hospital_{}".format(client_id)]))
 
 fed_dataset = sy.FederatedDataset(datasets)
 fdataloader = sy.FederatedDataLoader(fed_dataset, batch_size=args["batch_size"])
@@ -139,213 +149,229 @@ output_dim = y.shape[1]
 model = ClassificationNN(input_dim).to(device)
 optimizer = optim.SGD(model.parameters(), lr=args['lr'])
 
+
+roc_df = []
+
+
 # Training loop
 def train(args, model, device, train_loader, optimizer, epoch):
-    model.train()
-    #iterate over federated data
-    for batch_idx, (data, target) in enumerate(train_loader):
+	model.train()
+	#iterate over federated data
+	for batch_idx, (data, target) in enumerate(train_loader):
 
-        #send the model to the remote location
-        model = model.send(data.location)
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        output = model(data)
+		#send the model to the remote location
+		model = model.send(data.location)
+		data, target = data.to(device), target.to(device)
+		optimizer.zero_grad()
+		output = model(data)
 
-        # this loss is a pointer to the tensor loss 
-        # at the remote location
-        # print(output.dtype)
-        loss = F.nll_loss(output, target)
+		# this loss is a pointer to the tensor loss 
+		# at the remote location
+		# print(output.dtype)
+		loss = F.nll_loss(output, target)
 
-        # call backward() on the loss pointer,
-        # that will send the command to call
-        # backward on the actual loss tensor
-        # present on the remote machine
-        loss.backward()
+		# call backward() on the loss pointer,
+		# that will send the command to call
+		# backward on the actual loss tensor
+		# present on the remote machine
+		loss.backward()
 
-        optimizer.step()
+		optimizer.step()
 
-        # retrieve the model to the local 
-        # client and remove it from the 
-        # distant client
-        model.get()
+		# retrieve the model to the local 
+		# client and remove it from the 
+		# distant client
+		model.get()
 
-        if batch_idx % args['log_interval'] == 0:
+		if batch_idx % args['log_interval'] == 0:
 
-            # a thing to note is the variable loss was
-            # also created at remote worker, so we need to
-            # explicitly get it back
-            loss = loss.get()
+			# a thing to note is the variable loss was
+			# also created at remote worker, so we need to
+			# explicitly get it back
+			loss = loss.get()
 
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch,
-                    batch_idx * args['batch_size'], # no of images done
-                    len(train_loader) * args['batch_size'], # total images left
-                    100. * batch_idx / len(train_loader), 
-                    loss.item()
-                )
-            )
+			print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+					epoch,
+					batch_idx * args['batch_size'], # no of images done
+					len(train_loader) * args['batch_size'], # total images left
+					100. * batch_idx / len(train_loader), 
+					loss.item()
+				)
+			)
 
-def test(model, device, test_loader):
-    model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
+def test(model, device, test_loader, epoch, roc_df):
+	model.eval()
+	test_loss = 0
+	correct = 0
+	dummy = 0
 
-            # add losses together
-            test_loss += F.nll_loss(output, target, reduction='sum').item() 
+	with torch.no_grad():
+		for data, target in test_loader:
+			data, target = data.to(device), target.to(device)
+			output = model(data)
 
-            # get the index of the max probability class
-            pred = output.argmax(dim=1, keepdim=True)  
-            correct += pred.eq(target.view_as(pred)).sum().item()
+			# add losses together
+			test_loss += F.nll_loss(output, target, reduction='sum').item() 
 
-    test_loss /= len(test_loader.dataset)
+			# get the index of the max probability class
+			pred = output.argmax(dim=1, keepdim=True)  
+			correct += pred.eq(target.view_as(pred)).sum().item()
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+			if dummy == 0:
+				preds = np.reshape(output.numpy()[:,1], (-1))
+				labels = np.reshape(target.numpy(), (-1))
+				dummy += 1
+			else:
+				preds = np.concatenate((preds, np.reshape(output.numpy()[:,1], (-1))), axis=0)
+				labels = np.concatenate((labels, np.reshape(target.numpy(), (-1))), axis=0)
 
-def evaluate(y_true, predictions, validation_loss):
-    fp_rate, tp_rate, thresholds = roc_curve(y_true, predictions)
+	test_loss /= len(test_loader.dataset)
 
-    roc_auc = auc(fp_rate, tp_rate)
+	preds = np.reshape(preds, (-1))
+	labels = np.reshape(labels, (-1))
 
-    y_true = np.ravel(np.nan_to_num(y_true))
-    predictions = np.ravel(np.nan_to_num(predictions))
+	print('\npreds.shape: ', preds.shape, ' labels.shape: ', labels.shape, '\n')
 
-    roc_dummy = pd.DataFrame({
-        'fp_rate': fp_rate,
-        'tp_rate': tp_rate,
-        'threshold': thresholds,
-        'tp_dummy': tp_rate,
-        })
+	roc_df = evaluate(labels, preds, test_loss, epoch, roc_df)
 
-    set_recall = .9
-    roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] > set_recall] = 0.
-    roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] < roc_dummy['tp_dummy'].max()] = 0.
-    roc_dummy['tp_dummy'] /= roc_dummy['tp_dummy'].max()
-    roc_dummy = np.asarray(roc_dummy['threshold'].loc[roc_dummy['tp_dummy'] > .5].values)
-    
-    if roc_dummy.shape[0] > 1: roc_dummy = roc_dummy[0]
+	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+		test_loss, correct, len(test_loader.dataset),
+		100. * correct / len(test_loader.dataset)))
 
-    recall_threshold = roc_dummy
+	return roc_df
 
-    predictions_binary = predictions.copy()
-    predictions_binary[predictions_binary >= recall_threshold] = 1.
-    predictions_binary[predictions_binary < recall_threshold] = 0.
+def evaluate(y_true, predictions, validation_loss, epoch_counter_train, roc_df):
+  
+	fp_rate, tp_rate, thresholds = roc_curve(y_true, predictions)
 
-    num_true_positives = np.sum(np.abs(predictions_binary) * np.abs(y_true))
-    num_false_positives = np.sum(np.abs(predictions_binary) * np.abs(1. - y_true))
-    num_true_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(1. - y_true))
-    num_false_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(y_true))
+	print(fp_rate)
 
-    num_total_positives = num_true_positives + num_false_negatives
-    num_total_negatives = num_true_negatives + num_false_positives
+	roc_auc = auc(fp_rate, tp_rate)
 
-    num_total_positives_predicted = np.sum(np.abs(predictions_binary))
+	y_true = np.ravel(np.nan_to_num(y_true))
+	predictions = np.ravel(np.nan_to_num(predictions))
 
-    recall = num_true_positives / num_total_positives
-    selectivity = num_true_negatives / num_total_negatives
-    precision = num_true_positives / (num_true_positives + num_false_positives)
-    accuracy = (num_true_positives + num_true_negatives) / (num_total_positives + num_total_negatives)
-    f1score = (2 * num_true_positives) / (2 * num_true_positives + num_false_positives + num_false_negatives)
-    informedness = recall + selectivity - 1.
+	roc_dummy = pd.DataFrame({
+		'fp_rate': fp_rate,
+		'tp_rate': tp_rate,
+		'threshold': thresholds,
+		'tp_dummy': tp_rate,
+		})
 
-    roc_df = {
-    'epoch': self.epoch_counter_train,
-    'train_loss': np.round(self.last_train_epoch_loss, 5),
-    'val_loss': np.round(validation_loss.detach().numpy(), 5),
-    'auroc': np.round(100*roc_auc, 2),
-    'recall': np.round(100*recall, 2),
-    'selectivity': np.round(100*selectivity, 2),
-    'precision': np.round(100*precision, 2),
-    'accuracy': np.round(100*accuracy, 2),
-    'f1score': np.round(100*f1score, 2),
-    'informedness': np.round(100*informedness, 2),
-    '#TP': num_true_positives,
-    '#FP': num_false_positives,
-    '#TN': num_true_negatives,
-    '#FN': num_false_negatives,
-    }
+	set_recall = .9
+	roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] > set_recall] = 0.
+	roc_dummy['tp_dummy'][roc_dummy['tp_dummy'] < roc_dummy['tp_dummy'].max()] = 0.
+	roc_dummy['tp_dummy'] /= roc_dummy['tp_dummy'].max()
+	roc_dummy = np.asarray(roc_dummy['threshold'].loc[roc_dummy['tp_dummy'] > .5].values)
+	
+	if roc_dummy.shape[0] > 1: roc_dummy = roc_dummy[0]
 
-    plt.figure(figsize=(10,10))
-    plt.title('epoch ' + str(self.epoch_counter_train) + ' | auroc ' + str(np.round(100*roc_auc, 2)))
-    plt.plot(fp_rate, tp_rate, c='darkgreen', linewidth=4, alpha=.6)
-    plt.grid()
-    plt.xlim(0.,1.)
-    plt.ylim(0.,1.)
-    plt.xlabel('FalsePositives [%]')
-    plt.ylabel('TruePositives [%]')
-    plt.savefig(self.outdir + self.target_label + '/roc/' + self.target_label + '_epoch_' + str(self.epoch_counter_train) + '.pdf')
-    plt.close()
+	recall_threshold = roc_dummy
 
-    plt.figure()
-    plt.title('epoch ' + str(self.epoch_counter_train))
-    plt.scatter(np.arange(len(predictions[y_true == 1.])), predictions[y_true == 1.], label='positives', c='darkgreen', alpha=.6)
-    plt.scatter(np.arange(len(predictions[y_true == 0.])), predictions[y_true == 0.], label='negatives', c='orange', alpha=.6)
-    plt.grid()
-    plt.ylim(0.,1.)
-    plt.legend()
-    plt.xlabel('samples')
-    plt.ylabel('predictions')
-    plt.savefig(self.outdir + self.target_label + '/predictions/' + self.target_label + '_epoch_' + str(self.epoch_counter_train) + '.pdf')
-    plt.close()
+	predictions_binary = predictions.copy()
+	predictions_binary[predictions_binary >= recall_threshold] = 1.
+	predictions_binary[predictions_binary < recall_threshold] = 0.
 
-    performance_x_vec = np.linspace(0, self.epoch_counter_train, len(pd.DataFrame(self.roc_df)))
-    plt.figure()
-    plt.plot(performance_x_vec, pd.DataFrame(self.roc_df)['auroc'], c='darkgreen', label='auroc', linewidth=4, alpha=.6)
-    plt.plot(performance_x_vec, pd.DataFrame(self.roc_df)['selectivity'], c='darkred', label='selectivity @.9recall', linewidth=4, alpha=.6)
-    plt.plot(performance_x_vec, pd.DataFrame(self.roc_df)['precision'], c='orange', label='precision @.9recall', linewidth=4, alpha=.6)
-    plt.plot(performance_x_vec, pd.DataFrame(self.roc_df)['accuracy'], c='darkblue', label='accuracy @.9recall', linewidth=4, alpha=.6)
-    plt.xlabel('epochs')
-    plt.ylabel('[%]')
-    plt.title('Validation Performance Metrics for ' + self.target_label)
-    plt.grid()
-    plt.ylim(50.,100.)
-    plt.legend()
-    plt.savefig(self.outdir + self.target_label + '/performance.pdf')
-    plt.close()
+	num_true_positives = np.sum(np.abs(predictions_binary) * np.abs(y_true))
+	num_false_positives = np.sum(np.abs(predictions_binary) * np.abs(1. - y_true))
+	num_true_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(1. - y_true))
+	num_false_negatives = np.sum(np.abs(1. - predictions_binary) * np.abs(y_true))
 
-    return roc_df
+	num_total_positives = num_true_positives + num_false_negatives
+	num_total_negatives = num_true_negatives + num_false_positives
+
+	num_total_positives_predicted = np.sum(np.abs(predictions_binary))
+
+	recall = num_true_positives / num_total_positives
+	selectivity = num_true_negatives / num_total_negatives
+	precision = num_true_positives / (num_true_positives + num_false_positives)
+	accuracy = (num_true_positives + num_true_negatives) / (num_total_positives + num_total_negatives)
+	f1score = (2 * num_true_positives) / (2 * num_true_positives + num_false_positives + num_false_negatives)
+	informedness = recall + selectivity - 1.
+
+	roc_df.append({
+		'epoch': epoch_counter_train,
+		# 'train_loss': np.round(self.last_train_epoch_loss, 5),
+		'val_loss': np.round(validation_loss, 5),
+		'auroc': np.round(100*roc_auc, 2),
+		'recall': np.round(100*recall, 2),
+		'selectivity': np.round(100*selectivity, 2),
+		'precision': np.round(100*precision, 2),
+		'accuracy': np.round(100*accuracy, 2),
+		'f1score': np.round(100*f1score, 2),
+		'informedness': np.round(100*informedness, 2),
+		'#TP': num_true_positives,
+		'#FP': num_false_positives,
+		'#TN': num_true_negatives,
+		'#FN': num_false_negatives,
+		})
+
+	plt.figure(figsize=(10,10))
+	plt.title('epoch ' + str(epoch_counter_train) + ' | auroc ' + str(np.round(100*roc_auc, 2)))
+	plt.plot(fp_rate, tp_rate, c='darkgreen', linewidth=4, alpha=.6)
+	plt.grid()
+	plt.xlim(0.,1.)
+	plt.ylim(0.,1.)
+	plt.xlabel('FalsePositives [%]')
+	plt.ylabel('TruePositives [%]')
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/roc/' + args['target_label'] + '_epoch_' + str(epoch_counter_train) + '.pdf')
+	plt.close()
+
+	performance_x_vec = np.linspace(0, epoch_counter_train, len(pd.DataFrame(roc_df)))
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['auroc'], c='darkgreen', label='auroc', linewidth=4, alpha=.6)
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['selectivity'], c='darkred', label='selectivity @.9recall', linewidth=4, alpha=.6)
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['precision'], c='orange', label='precision @.9recall', linewidth=4, alpha=.6)
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['accuracy'], c='darkblue', label='accuracy @.9recall', linewidth=4, alpha=.6)
+	plt.xlabel('epochs')
+	plt.ylabel('[%]')
+	plt.title('Validation Performance Metrics for ' + args['target_label'])
+	plt.grid()
+	plt.ylim(50.,100.)
+	plt.legend()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/performance.pdf')
+	plt.close()
+
+	print(pd.DataFrame(roc_df))
+
+	return roc_df
 
 def validate(mode, validation_loader):
-    validation_loss = 0.
-    validation_label_cache, validation_prediction_cache = [], []
-    dummy = 0
-    with torch.no_grad():
-        model.eval()
-        test_loss = 0
-        correct = 0
-        with torch.no_grad():
-            for data, target in validation_loader:
-                data, target = data.to(device), target.to(device)
-                output = model(data)
+	validation_loss = 0.
+	validation_label_cache, validation_prediction_cache = [], []
+	dummy = 0
+	with torch.no_grad():
+		model.eval()
+		test_loss = 0
+		correct = 0
+		with torch.no_grad():
+			for data, target in validation_loader:
+				data, target = data.to(device), target.to(device)
+				output = model(data)
 
-                # add losses together
-                validation_loss += F.nll_loss(output, target, reduction='sum').item() 
+				# add losses together
+				validation_loss += F.nll_loss(output, target, reduction='sum').item() 
 
-                # get the index of the max probability class
-                pred = output.argmax(dim=1, keepdim=True)  
-                correct += pred.eq(target.view_as(pred)).sum().item()
+				# get the index of the max probability class
+				pred = output.argmax(dim=1, keepdim=True)  
+				correct += pred.eq(target.view_as(pred)).sum().item()
 
 
-                if dummy == 0:
-                    validation_label_cache = np.reshape(np.asarray(target.detach().numpy()), (-1,1))
-                    validation_prediction_cache = np.reshape(np.asarray(output.detach().numpy()), (-1,2))
-                    dummy += 1
-                else:
-                    validation_label_cache = np.concatenate((validation_label_cache, np.reshape(np.asarray(target.detach().numpy()), (-1,1))), axis=0)
-                    validation_prediction_cache = np.concatenate((validation_prediction_cache, np.reshape(np.asarray(output.detach().numpy()), (-1,2))), axis=0)
+				if dummy == 0:
+					validation_label_cache = np.reshape(np.asarray(target.detach().numpy()), (-1,1))
+					validation_prediction_cache = np.reshape(np.asarray(output.detach().numpy()), (-1,2))
+					dummy += 1
+				else:
+					validation_label_cache = np.concatenate((validation_label_cache, np.reshape(np.asarray(target.detach().numpy()), (-1,1))), axis=0)
+					validation_prediction_cache = np.concatenate((validation_prediction_cache, np.reshape(np.asarray(output.detach().numpy()), (-1,2))), axis=0)
 
-        validation_loss /= len(validation_loader.dataset)
+		validation_loss /= len(validation_loader.dataset)
 
-        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            validation_loss, correct, len(validation_loader.dataset),
-            100. * correct / len(validation_loader.dataset)))
+		print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+			validation_loss, correct, len(validation_loader.dataset),
+			100. * correct / len(validation_loader.dataset)))
 
 
 for epoch in range(1, args['epochs'] + 1):
-        train(args, model, device, fdataloader, optimizer, epoch)
-        test(args, model, device, test_loader)
+		train(args, model, device, fdataloader, optimizer, epoch)
+		roc_df = test(model, device, test_loader, epoch, roc_df)

@@ -840,10 +840,12 @@ class DataManager():
 			self.process_data_path = self.args.mydata_path_processed
 			self.target_features = self.args.target_label
 			self.train_split = self.args.train_split
+			self.split_strategy = self.args.split_strategy
 		except AttributeError:
 			self.process_data_path = self.args['mydata_path_processed']
 			self.target_features = self.args['target_label']
 			self.train_split = self.args['train_split']
+			self.split_strategy = self.args['split_strategy']
 
 
 		self.scaler_lo_icu = RobustScaler()
@@ -916,11 +918,10 @@ class DataManager():
 			'lab_names',
 			]
 
-		self.data_container, self.sampling_df = self.split_data()
+		self.data_container, self.sampling_df = self.get_data()
 
 	def split_data(self):
 
-		unique_patient_ids = self.data_df['patient_id'].unique()
 		unique_hospital_ids = self.data_df['hospital_id'].unique()
 
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
@@ -999,45 +1000,124 @@ class DataManager():
 
 		return data_container, pd.DataFrame(sampling_df)
 
+	def second_split(self):
+
+		unique_hospital_ids = self.data_df['hospital_id'].unique()
+
+		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
+		# feature_map = np.nan_to_num(feature_map)
+		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+
+		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
+		y_full = self.data_df[self.target_features]
+
+		train_ids, val_ids, test_ids = [], [], []
+		train_idx, val_idx, test_idx = [], [], []
+
+		dummyrunner = 0
+
+		sampling_df = []
+
+		for hosp_id in unique_hospital_ids:
+
+			hospital_dummy_df = self.data_df[['hospital_id', 'patient_id', 'corr_id']].loc[self.data_df['hospital_id'] == hosp_id]
+			
+			val_frac, test_frac = np.split(
+				hospital_dummy_df['corr_id'].sample(frac=1.), 
+				[int(.5*np.asarray(hospital_dummy_df).shape[0])])
+
+			sampling_df.append({
+				'hospital_id': hosp_id,
+				'train_ids': train_frac,
+				'val_ids': val_frac,
+				'test_ids': test_frac,
+				})
+
+			if dummyrunner == 0:
+				val_ids = np.reshape(val_frac.values, (-1,1))
+				test_ids = np.reshape(test_frac.values, (-1,1))
+				dummyrunner += 1
+			else:
+				val_ids = np.concatenate((val_ids, np.reshape(val_frac.values, (-1,1))), axis=0)
+				test_ids = np.concatenate((test_ids, np.reshape(test_frac.values, (-1,1))), axis=0)
+
+		for i in range(self.data_df.shape[0]):
+
+			if self.data_df['corr_id'].iloc[i] in val_ids:
+				val_idx.append(i)
+			if self.data_df['corr_id'].iloc[i] in test_ids:
+				test_idx.append(i)
+
+		val_idx = np.reshape(np.asarray(val_idx), (-1))
+		test_idx = np.reshape(np.asarray(test_idx), (-1))
+
+		x_val = feature_map.iloc[val_idx,:]
+		x_test = feature_map.iloc[test_idx,:]
+
+		y_val = y_full.iloc[val_idx]
+		y_test = y_full.iloc[test_idx]
+
+		data_container = {
+			'x_full': feature_map,
+			'x_train': feature_map,
+			'x_val': x_val,
+			'x_test': x_test,
+			'y_full': y_full,
+			'y_train': y_full,
+			'y_val': y_val,
+			'y_test': y_test,
+		}
+
+		return data_container, pd.DataFrame(sampling_df)
+	
+	def get_data(self):
+
+		if self.split_strategy == 'trainN_testN':
+			data_container, sampling_df = self.split_data()
+		elif self.split_strategy == 'trainNminus1_test1':
+			data_container, sampling_df = self.second_split()
+
+		return data_container, sampling_df
+
 	def get_full_train_data(self):
 
-		return self.data_container['x_train'].values, self.data_container['y_train'].values
+		return self.data_container['x_train'].values, np.reshape(self.data_container['y_train'].values, (-1,1))
 
 	def get_full_val_data(self):
 
-		return self.data_container['x_val'].values, self.data_container['y_val'].values
+		return self.data_container['x_val'].values, np.reshape(self.data_container['y_val'].values, (-1,1))
 
 	def get_full_test_data(self):
 
-		return self.data_container['x_test'].values, self.data_container['y_test'].values
+		return self.data_container['x_test'].values, np.reshape(self.data_container['y_test'].values, (-1,1))
 
 	def get_full_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
 
-		return np.asarray(x_dummy), np.asarray(y_dummy)
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_train_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
 
-		return np.asarray(x_dummy), np.asarray(y_dummy)
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_test_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
 
-		return np.asarray(x_dummy), np.asarray(y_dummy)
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_val_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
 
-		return np.asarray(x_dummy), np.asarray(y_dummy)
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 
 
