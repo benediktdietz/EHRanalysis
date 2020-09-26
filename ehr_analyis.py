@@ -58,23 +58,23 @@ if args.process_data:
 	DataProcessor(args)
 
 
-eICU_data = DataManager(
-	[
-		'length_of_stay',
-		'length_of_icu',
-		'will_return',
-		'will_die',
-		'will_readmit',
-		'will_stay_long',
-		'unit_readmission',
-		'survive_current_icu',
-	], args)
+# eICU_data = DataManager(
+# 	[
+# 		'length_of_stay',
+# 		'length_of_icu',
+# 		'will_return',
+# 		'will_die',
+# 		'will_readmit',
+# 		'will_stay_long',
+# 		'unit_readmission',
+# 		'survive_current_icu',
+# 	], args)
 
 
-NetworkTrainer(eICU_data, args)
+# NetworkTrainer(eICU_data, args)
 
-FL_network = FederatedLearner(args)
-FL_network.train()
+# FL_network = FederatedLearner(args)
+# FL_network.train()
 
 
 # Regressor(eICU_data, 'length_of_stay', OUTPATH)
