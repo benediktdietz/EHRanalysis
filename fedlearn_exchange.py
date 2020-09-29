@@ -1,4 +1,5 @@
-# Copyright (C) 2020  Arash Mehrjou, Max Planck Institute for Intelligent Systems
+# Description: Federated learning by model exchange
+#  Copyright (C) 2020  Arash Mehrjou, Max Planck Institute for Intelligent Systems
 # Copyright (C) 2020  Arash Mehrjou, ETH Zürich
 
 
@@ -34,7 +35,7 @@ from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, Dat
 args = {
 	# 'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
 	'mydata_path_processed' : '../mydata/processed_data_consolidated.csv',
-	'datapath_processed' : '../mydata/nomeds_20k_processed.csv',
+	'datapath_processed' : '../mydata/processed_data.csv',
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
