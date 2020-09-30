@@ -1,5 +1,4 @@
-# Description: Federated learning by model exchange
-#  Copyright (C) 2020  Arash Mehrjou, Max Planck Institute for Intelligent Systems
+# Copyright (C) 2020  Arash Mehrjou, Max Planck Institute for Intelligent Systems
 # Copyright (C) 2020  Arash Mehrjou, ETH Zürich
 
 
@@ -35,11 +34,11 @@ from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, Dat
 args = {
 	# 'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
 	'mydata_path_processed' : '../mydata/processed_data_consolidated.csv',
-	'datapath_processed' : '../mydata/processed_data.csv',
+	'datapath_processed' : '../mydata/nomeds_20k_processed.csv',
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/FL_30_9_2/',
+	'OUTPATH' : '../results/FL_24_9_5/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
@@ -59,6 +58,7 @@ args = {
 	'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
 	'test_hospital_id' : 73 #'trainNminus1_test1'
 }
+
 
 
 datapath_processed = args["datapath_processed"]
@@ -119,7 +119,6 @@ datasets = []
 logging.info("Load federated dataset")
 for client_id in client_ids:
 	tmp_path = federated_path + '/hospital_' + str(client_id) + '.csv'
-	# x, y = get_data_from_DataManager(args["target_attributes"], args)
 	x, y = eICU_data.get_train_data_from_hopital(client_id)
 	client_datapair_dict["hospital_{}".format(client_id)] = (x, y)
 #     client_data_list.append((pd.read_csv(federated_path + '/hospital_' + str(client_id) + '.csv')[predictive_attributes], )
@@ -135,7 +134,6 @@ fdataloader = sy.FederatedDataLoader(fed_dataset, batch_size=args["batch_size"])
 
 
 # Load test data
-# x, y = get_data_from_DataManager(args["target_attributes"], args)
 if args['split_strategy'] == 'trainN_testN':
 	x, y = eICU_data.get_full_test_data()
 if args['split_strategy'] == 'trainNminus1_test1':
@@ -146,7 +144,6 @@ my_dataset = TensorDataset(x_pt, y_pt) # create your datset
 test_loader = DataLoader(my_dataset, batch_size=10) # create your dataloader
 
 # Load validation data
-# x, y = get_data_from_DataManager(args["target_attributes"], args)
 if args['split_strategy'] == 'trainN_testN':
 	x, y = eICU_data.get_full_val_data()
 if args['split_strategy'] == 'trainNminus1_test1':
@@ -343,7 +340,7 @@ def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_cou
 	plt.ylabel('[%]')
 	plt.title('Validation Performance Metrics for ' + args['target_label'])
 	plt.grid()
-	# plt.ylim(50.,100.)
+	plt.ylim(50.,100.)
 	plt.legend()
 	plt.savefig(args['OUTPATH'] + args['target_label'] + '/performance.pdf')
 	plt.close()
