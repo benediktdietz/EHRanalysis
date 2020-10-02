@@ -912,13 +912,13 @@ class DataManager():
 			'patient_id',
 			'health_system_id',
 			'corr_id',
-			'data_set_ref',
+			# 'data_set_ref',
 			# 'medication_ids',
 			# 'drug_strings_prescribed',
 			# 'drug_codes_prescribed',
 			# 'diagnosis_string',
-			'pasthistory_notetypes',
-			'pasthistory_values',
+			# 'pasthistory_notetypes',
+			# 'pasthistory_values',
 			'hospital_discharge_year_2014',
 			'hospital_discharge_year_2015',
 			# labels we want to predict or shouldnt be available for our predictions
@@ -959,8 +959,8 @@ class DataManager():
 			'visits_current_stay',
 			'unit_readmission',
 			'survive_current_icu',
-			'lab_type_ids',
-			'lab_names',
+			# 'lab_type_ids',
+			# 'lab_names',
 			]
 
 		self.data_container, self.sampling_df = self.get_data()

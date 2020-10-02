@@ -29,6 +29,7 @@ from torchvision import datasets, transforms
 import syft as sy
 from federated_utils import ClassificationNN, get_data_from_DataManager
 from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 # Hospital packages
 from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
@@ -39,7 +40,7 @@ args = {
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/FL_30_9_2/',
+	'OUTPATH' : '../results/FL_exchange_1_10_willstaylong_2/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
@@ -54,7 +55,7 @@ args = {
 	'task' : 'classification',
 	# 'predictive_attributes' : ["length_of_stay", "will_die"],
 	# 'target_attributes' : ["will_die"],
-	'target_label' : "will_die",
+	'target_label' : "will_stay_long",
 	# 'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
 	'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
 	'test_hospital_id' : 73 #'trainNminus1_test1'
@@ -77,8 +78,10 @@ device = torch.device("cuda" if use_cuda else "cpu")
 try:
 	os.makedirs(args['OUTPATH'] + args['target_label'] + '/')
 	os.makedirs(args['OUTPATH'] + args['target_label'] + '/roc/')
+	os.makedirs(args['OUTPATH'] + args['target_label'] + '/tensorboard/')
 except FileExistsError: pass
 
+summary_writer = SummaryWriter(log_dir=args['OUTPATH'] + args['target_label'] + '/tensorboard/')
 
 
 eICU_data = DataManager(args)
@@ -160,7 +163,8 @@ validation_loader = DataLoader(my_dataset, batch_size=10) # create your dataload
 logging.info("Build the client model")
 input_dim = x.shape[1]
 output_dim = y.shape[1]
-model = ClassificationNN(input_dim).to(device)
+model = ClassificationNN(input_dim)
+model.to(device)
 optimizer = optim.SGD(model.parameters(), lr=args['lr'])
 
 
@@ -170,6 +174,13 @@ roc_df = []
 # Training loop
 def train(args, model, device, train_loader, optimizer, epoch):
 	model.train()
+
+	fully_connected_0_weight_grad = 0.
+	fully_connected_1_weight_grad = 0.
+	fully_connected_2_weight_grad = 0.
+	fully_connected_3_weight_grad = 0.
+	fully_connected_final_weight_grad = 0.
+
 	#iterate over federated data
 	for batch_idx, (data, target) in enumerate(train_loader):
 
@@ -197,6 +208,14 @@ def train(args, model, device, train_loader, optimizer, epoch):
 		# distant client
 		model.get()
 
+
+		fully_connected_0_weight_grad += torch.mean(torch.abs(model.fully_connected_0.weight.grad))
+		fully_connected_1_weight_grad += torch.mean(torch.abs(model.fully_connected_1.weight.grad))
+		fully_connected_2_weight_grad += torch.mean(torch.abs(model.fully_connected_2.weight.grad))
+		fully_connected_3_weight_grad += torch.mean(torch.abs(model.fully_connected_3.weight.grad))
+		fully_connected_final_weight_grad += torch.mean(torch.abs(model.fully_connected_final.weight.grad))
+
+
 		if batch_idx % args['log_interval'] == 0:
 
 			# a thing to note is the variable loss was
@@ -212,6 +231,13 @@ def train(args, model, device, train_loader, optimizer, epoch):
 					loss.item()
 				)
 			)
+
+	summary_writer.add_scalar('gradients_weights/linear_0', fully_connected_0_weight_grad/len(train_loader), epoch)
+	summary_writer.add_scalar('gradients_weights/linear_1', fully_connected_1_weight_grad/len(train_loader), epoch)
+	summary_writer.add_scalar('gradients_weights/linear_2', fully_connected_2_weight_grad/len(train_loader), epoch)
+	summary_writer.add_scalar('gradients_weights/linear_3', fully_connected_3_weight_grad/len(train_loader), epoch)
+	summary_writer.add_scalar('gradients_weights/linear_final', fully_connected_final_weight_grad/len(train_loader), epoch)
+
 
 def test(model, device, test_loader, epoch, roc_df):
 	model.eval()
@@ -244,6 +270,8 @@ def test(model, device, test_loader, epoch, roc_df):
 
 	# if args['split_strategy'] != 'trainNminus1_test1':
 	test_loss /= len(test_loader.dataset)
+
+	summary_writer.add_scalar('loss/test_loss', test_loss, epoch)
 
 	preds_bin = np.reshape(preds_bin, (-1))
 	preds = np.reshape(preds, (-1))
@@ -321,6 +349,16 @@ def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_cou
 		'#TN': num_true_negatives,
 		'#FN': num_false_negatives,
 		})
+
+	summary_writer.add_scalar('performance/auroc', roc_auc, epoch)
+	summary_writer.add_scalar('performance/selectivity', selectivity, epoch)
+	summary_writer.add_scalar('performance/precision', precision, epoch)
+	summary_writer.add_scalar('performance/accuracy', accuracy, epoch)
+	summary_writer.add_scalar('performance/num_true_positives', num_true_positives, epoch)
+	summary_writer.add_scalar('performance/num_false_positives', num_false_positives, epoch)
+	summary_writer.add_scalar('performance/num_true_negatives', num_true_negatives, epoch)
+	summary_writer.add_scalar('performance/num_false_negatives', num_false_negatives, epoch)
+
 
 	plt.figure(figsize=(10,10))
 	plt.title('epoch ' + str(epoch_counter_train) + ' | auroc ' + str(np.round(100*roc_auc, 2)))

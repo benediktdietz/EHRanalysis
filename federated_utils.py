@@ -8,31 +8,44 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
+from torch.utils.tensorboard import SummaryWriter
 import logging
 from data_management import DataManager
 
 class MLP_classifier(nn.Module):
-    
-    def __init__(self, input_size):
-        super(MLP_classifier, self).__init__()
-        
-        self.fc1 = nn.Linear(input_size, 512)
-        self.dp = nn.Dropout(0.2)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 2)
-    
-    def forward(self, x):
-        x = self.dp(self.fc1(x))
-        x = F.sigmoid(x)
-        x = self.dp(self.fc2(x))
-        x = F.sigmoid(x)
-        x = self.dp(self.fc3(x))
-        x = F.sigmoid(x)
-        x = self.fc4(x)
-        x = F.log_softmax(x, dim=1)
-        return x
+	
+	def __init__(self, input_size, outpath):
+		super(MLP_classifier, self).__init__()
+		
+		self.fc1 = nn.Linear(input_size, 512)
+		self.dp = nn.Dropout(0.2)
+		self.fc2 = nn.Linear(512, 256)
+		self.fc3 = nn.Linear(256, 128)
+		self.fc4 = nn.Linear(128, 2)
 
+		torch.nn.init.xavier_uniform_(self.fc1.weight)
+		torch.nn.init.xavier_uniform_(self.fc2.weight)
+		torch.nn.init.xavier_uniform_(self.fc3.weight)
+		torch.nn.init.xavier_uniform_(self.fc4.weight)
+
+		self.writer = SummaryWriter(log_dir=outpath)
+	
+	def forward(self, x):
+
+		x = self.dp(self.fc1(x))
+		x = F.sigmoid(x)
+		x = self.dp(self.fc2(x))
+		x = F.sigmoid(x)
+		x = self.dp(self.fc3(x))
+		x = F.sigmoid(x)
+		x = self.fc4(x)
+		x = F.log_softmax(x, dim=1)
+
+		return x
+
+	def write_data(self):
+
+		self.writer.add_scalar('gradients/fc1', self.fc1.weight.grad)
 
 class ClassificationNN(nn.Module):
 
@@ -71,6 +84,7 @@ class ClassificationNN(nn.Module):
 		torch.nn.init.xavier_uniform_(self.fully_connected_3.weight)
 		torch.nn.init.xavier_uniform_(self.fully_connected_final.weight)
 
+
 	def forward(self, x, is_training=True):
 		
 		x = self.bn_00(x.float())
@@ -97,7 +111,7 @@ class ClassificationNN(nn.Module):
 
 
 def get_data_from_DataManager(path, target_labels):
-    eICU_data = DataManager(
+	eICU_data = DataManager(
 	path, target_labels)
-    print(eICU_data.training_data.keys())
-    return eICU_data.training_data['x_full'], eICU_data.training_data['y_full']
+	print(eICU_data.training_data.keys())
+	return eICU_data.training_data['x_full'], eICU_data.training_data['y_full']

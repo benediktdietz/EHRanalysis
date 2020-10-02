@@ -29,17 +29,21 @@ from torchvision import datasets, transforms
 import syft as sy
 from federated_utils import ClassificationNN, get_data_from_DataManager
 from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
 # Hospital packages
-from data_management import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
+from data_management_new import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
+
+
 
 args = {
     # 'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
-    'mydata_path_processed' : '../mydata/newset_processed.csv',
-    'datapath_processed' : '../mydata/newset_processed.csv',
+    'mydata_path_processed' : '../mydata/bene_processed_20k.csv',
+    'datapath_processed' : '../mydata/bene_processed_20k.csv',
     'test_data_path' : '../mydata/federated/hospital_59.csv',
     'validation_data_path' : '../mydata/federated/hospital_59.csv',
     'federated_path' : '../mydata/federated',
-    'OUTPATH' : '../results/FL_30_9_1/',
+    'OUTPATH' : '../results/FL_aggregated_2_10_test2/',
     'train_split' : .7,
     'create_new_federated_data' : True,
     'num_of_included_patients' : 20000,
@@ -51,17 +55,16 @@ args = {
     'lr' : 0.001,
     'log_interval' : 5,
     'epochs' : 100,
-    'aggregation_iters' : 10,
+    'aggregation_iters' : 100,
     'worker_iters' : 5,
     'task' : 'classification',
     'predictive_attributes' : ["length_of_stay", "will_die"],
     'target_attributes' : ["will_die"],
-    'target_label' : "will_die",
-    # 'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
-    'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
+    'target_label' : "will_stay_long",
+    'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
+    # 'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
     'test_hospital_id' : 73 #'trainNminus1_test1'
 }
-
 
 
 datapath_processed = args["datapath_processed"]
@@ -71,11 +74,13 @@ OUTPATH = args["OUTPATH"]
 use_cuda = args['use_cuda'] and torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-
 try:
     os.makedirs(args['OUTPATH'] + args['target_label'] + '/')
     os.makedirs(args['OUTPATH'] + args['target_label'] + '/roc/')
+    os.makedirs(args['OUTPATH'] + args['target_label'] + '/tensorboard/')
 except FileExistsError: pass
+
+summary_writer = SummaryWriter(log_dir=args['OUTPATH'] + args['target_label'] + '/tensorboard/')
 
 
 eICU_data = DataManager(args)
@@ -182,11 +187,12 @@ def average_models(list_of_models, target_model):
 logging.info("Build the client model")
 input_dim = x.shape[1]
 output_dim = y.shape[1]
-model = ClassificationNN(input_dim).to(device)
+model = ClassificationNN(input_dim)
+model.to(device)
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 
 
-def validate(model, validation_loader):
+def validate(model, validation_loader, epoch):
     validation_loss = 0.
     validation_label_cache, validation_prediction_cache = [], []
     dummy = 0
@@ -217,11 +223,14 @@ def validate(model, validation_loader):
 
         validation_loss /= len(validation_loader.dataset)
 
+        summary_writer.add_scalar('loss/validation_loss', validation_loss, epoch)
+
         print('\nValidation set: Validation loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             validation_loss, correct, len(validation_loader.dataset),
             100. * correct / len(validation_loader.dataset)))
 
 def test(model, test_loader, epoch, roc_df):
+
     model.eval()
     test_loss = 0
     correct = 0
@@ -252,6 +261,8 @@ def test(model, test_loader, epoch, roc_df):
 
     # if args['split_strategy'] != 'trainNminus1_test1':
     test_loss /= len(test_loader.dataset)
+
+    summary_writer.add_scalar('loss/test_loss', test_loss, epoch)
 
     preds_bin = np.reshape(preds_bin, (-1))
     preds = np.reshape(preds, (-1))
@@ -329,6 +340,17 @@ def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_cou
         '#TN': num_true_negatives,
         '#FN': num_false_negatives,
         })
+
+
+    summary_writer.add_scalar('performance/auroc', roc_auc, epoch_counter_train)
+    summary_writer.add_scalar('performance/selectivity', selectivity, epoch_counter_train)
+    summary_writer.add_scalar('performance/precision', precision, epoch_counter_train)
+    summary_writer.add_scalar('performance/accuracy', accuracy, epoch_counter_train)
+    summary_writer.add_scalar('performance/num_true_positives', num_true_positives, epoch_counter_train)
+    summary_writer.add_scalar('performance/num_false_positives', num_false_positives, epoch_counter_train)
+    summary_writer.add_scalar('performance/num_true_negatives', num_true_negatives, epoch_counter_train)
+    summary_writer.add_scalar('performance/num_false_negatives', num_false_negatives, epoch_counter_train)
+
 
     plt.figure(figsize=(10,10))
     plt.title('epoch ' + str(epoch_counter_train) + ' | auroc ' + str(np.round(100*roc_auc, 2)))
@@ -415,15 +437,30 @@ for a_iter in range(args["aggregation_iters"]):
             local_worker_loss[worker_id].backward()
             local_optimizers[worker_id].step()
             local_worker_loss[worker_id] = local_worker_loss[worker_id].get().data
+
+            # print(torch.mean(torch.abs(local_models[worker_id].get().fully_connected_0.weight.grad)))
+            # print(local_models[worker_id].get().fully_connected_0.weight.grad)
+    # for worker_id in virtual_workers.keys():
+    #     dummy_model = local_models[worker_id].copy().get()
+    #     summary_writer.add_scalar(
+    #         'gradients_workers/woker_'+str(worker_id)+'linear_1', 
+    #         torch.mean(torch.abs(dummy_model.fully_connected_0.weight.grad)), 
+    #         a_iter)
+
+
+            # local_models[worker_id].write_data()
+            # print(local_models[worker_id].get().fc1.weight.grad)
+            # summary_writer.add_scalar('fc1', local_model_dummy.fc1.weight.grad, a_iter)
+            # print(local_model_dummy.fc1.weight)
+
     # Send models to the secure worker
     for worker_id in virtual_workers.keys():
         local_models[worker_id].move(secure_worker)
 #     print(list(model.parameters())[0])
     model = average_models(list(local_models.values()), model.send(secure_worker)).get()
-    validate(model, validation_loader)
+    # validate(model, validation_loader)
 #     print(list(model.parameters())[0])
     roc_df = test(model, validation_loader, a_iter, roc_df)
-
 
 
 
