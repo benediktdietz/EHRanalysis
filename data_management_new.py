@@ -375,6 +375,8 @@ class DataProcessor():
 		print('writing files to ', self.read_path_files)
 		self.min_patients_per_client = self.args.min_patients_per_hospital
 
+		self.add_hosp_stats_to_features = False
+
 		# self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
 		self.dataframe = patch_all_files_together(self.read_path_files)
 		self.dataframe = self.dataframe.drop(columns='Unnamed: 0')
@@ -428,7 +430,7 @@ class DataProcessor():
 
 		self.add_hospital_stats()
 
-		self.feature_df = self.feature_df.loc[self.feature_df['clinic_stats_num_patients'] >= self.min_patients_per_client]
+		# self.feature_df = self.feature_df.loc[self.features_df['clinic_stats_num_patients'] >= self.min_patients_per_client]
 
 		processed_features = patch_encoded_files_together(self.read_path_files, self.loaded_hospital_ids, self.feature_df)
 		self.feature_df = pd.merge(self.feature_df, processed_features, on='corr_id')
@@ -999,33 +1001,34 @@ class DataProcessor():
 		clinic_stats_df.sort_values('num_patients', ascending=False).to_csv(self.read_path_files + 'clinic_stats.csv')
 		clinic_stats_df.reset_index(drop=True)
 
+		if self.add_hosp_stats_to_features:
 
-		print('\nattaching hospital stats dataframe to feature map...')
-		pbar = tqdm(total=len(self.feature_df['corr_id'].unique())+1)
+			print('\nattaching hospital stats dataframe to feature map...')
+			pbar = tqdm(total=len(self.feature_df['corr_id'].unique())+1)
 
-		extra_hospital_keys = clinic_stats_df.keys().values
-		# self.feature_df[clinic_stats_df.keys().values] = 0.
-		for extra_hospital_key in extra_hospital_keys:
-			if extra_hospital_key != 'hospital_id':
-				self.feature_df['clinic_stats_' + extra_hospital_key] = 0.
+			extra_hospital_keys = clinic_stats_df.keys().values
+			# self.feature_df[clinic_stats_df.keys().values] = 0.
+			for extra_hospital_key in extra_hospital_keys:
+				if extra_hospital_key != 'hospital_id':
+					self.feature_df['clinic_stats_' + extra_hospital_key] = 0.
 
 
 
-		self.feature_df.reset_index(drop=True)
+			self.feature_df.reset_index(drop=True)
 
-		for stay_id in self.feature_df['corr_id'].unique():
+			for stay_id in self.feature_df['corr_id'].unique():
 
-			hospital_id_dummy = self.feature_df['hospital_id'].loc[self.feature_df['corr_id'] == stay_id].values[0]
+				hospital_id_dummy = self.feature_df['hospital_id'].loc[self.feature_df['corr_id'] == stay_id].values[0]
 
-			for clinic_key in extra_hospital_keys:
+				for clinic_key in extra_hospital_keys:
 
-				if clinic_key != 'hospital_id':
+					if clinic_key != 'hospital_id':
 
-					dummy = clinic_stats_df[clinic_key].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-					self.feature_df['clinic_stats_' + clinic_key].loc[self.feature_df['corr_id'] == stay_id] = dummy
+						dummy = clinic_stats_df[clinic_key].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
+						self.feature_df['clinic_stats_' + clinic_key].loc[self.feature_df['corr_id'] == stay_id] = dummy
 
-			pbar.update(1)
-		pbar.close()
+				pbar.update(1)
+			pbar.close()
 
 	def make_federated_sets(self):
 
@@ -1208,7 +1211,7 @@ class DataAnalysis():
 			print('\ntarget_correaltions\n')
 			print(target_correaltions)
 
-			plt.figure(figsize=(10,50))
+			plt.figure(figsize=(40,50))
 			plt.title(target_feat)
 			plt.barh(target_correaltions.index,target_correaltions[target_feat])
 			plt.grid()
@@ -1261,6 +1264,7 @@ class DataManager():
 		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] > 5000.] = 5000.
 		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] < 1.] = 1.
 
+
 		# self.data_df = self.data_df.loc[self.data_df['num_patients'] >= self.args.min_patients_per_hospital]
 
 		self.label_cols = [
@@ -1306,6 +1310,7 @@ class DataManager():
 			'unit_stay_type_stepdown/other',
 			'unit_stay_type_transfer',
 			'hospital_discharge_offset',
+			'hospital_discharge_status',
 			'hospital_discharge_status_Alive',
 			'hospital_discharge_status_Expired',
 			'will_return',
@@ -1329,13 +1334,13 @@ class DataManager():
 		# feature_map = np.nan_to_num(feature_map)
 
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
-		feature_map = self.data_df
-		for labelcol in feature_map:
+		feature_map = self.data_df.copy()
+		for labelcol in self.label_cols:
 			try:
 				feature_map = feature_map.drop(columns = labelcol)
 			except KeyError:
 				continue
-		feature_map = feature_map.fillna(0.)
+		feature_map = feature_map.fillna(0.).astype(float)
 
 		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
 		y_full = self.data_df[self.target_features]
@@ -1351,8 +1356,14 @@ class DataManager():
 
 			hospital_dummy_df = self.data_df[['hospital_id', 'patient_id', 'corr_id']].loc[self.data_df['hospital_id'] == hosp_id]
 			
+			# train_frac, val_frac, test_frac = np.split(
+			# 	hospital_dummy_df['corr_id'].sample(frac=1.), 
+			# 	[
+			# 	int(self.train_split*np.asarray(hospital_dummy_df).shape[0]), 
+			# 	int((1-(.5*(1-self.train_split)))*np.asarray(hospital_dummy_df).shape[0])
+			# 	])
 			train_frac, val_frac, test_frac = np.split(
-				hospital_dummy_df['corr_id'].sample(frac=1.), 
+				hospital_dummy_df['patient_id'].sample(frac=1.), 
 				[
 				int(self.train_split*np.asarray(hospital_dummy_df).shape[0]), 
 				int((1-(.5*(1-self.train_split)))*np.asarray(hospital_dummy_df).shape[0])
@@ -1377,11 +1388,18 @@ class DataManager():
 
 		for i in range(self.data_df.shape[0]):
 
-			if self.data_df['corr_id'].iloc[i] in train_ids:
+			# if self.data_df['corr_id'].iloc[i] in train_ids:
+			# 	train_idx.append(i)
+			# if self.data_df['corr_id'].iloc[i] in val_ids:
+			# 	val_idx.append(i)
+			# if self.data_df['corr_id'].iloc[i] in test_ids:
+			# 	test_idx.append(i)
+
+			if self.data_df['patient_id'].iloc[i] in train_ids:
 				train_idx.append(i)
-			if self.data_df['corr_id'].iloc[i] in val_ids:
+			if self.data_df['patient_id'].iloc[i] in val_ids:
 				val_idx.append(i)
-			if self.data_df['corr_id'].iloc[i] in test_ids:
+			if self.data_df['patient_id'].iloc[i] in test_ids:
 				test_idx.append(i)
 
 		train_idx = np.reshape(np.asarray(train_idx), (-1))
@@ -1395,6 +1413,23 @@ class DataManager():
 		y_train = y_full.iloc[train_idx]
 		y_val = y_full.iloc[val_idx]
 		y_test = y_full.iloc[test_idx]
+
+
+		number_y_total = len(y_train)
+		number_y_positive = y_train.sum()
+		missing_y_samples = (number_y_total // 2) - number_y_positive
+		available_positives_y = y_train[y_train == 1]
+		available_positives_x = x_train[y_train == 1]
+
+		try:
+			random_choice = np.random.choice(len(available_positives_y), size=int(missing_y_samples))
+
+			x_train = pd.concat([x_train, available_positives_x.iloc[random_choice]])
+			y_train = pd.concat([y_train, available_positives_y.iloc[random_choice]])
+		except ValueError:
+			print('ValueError')
+			pass
+
 
 		data_container = {
 			'x_full': feature_map,
@@ -1419,12 +1454,12 @@ class DataManager():
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
 
 		feature_map = self.data_df
-		for labelcol in feature_map:
+		for labelcol in self.label_cols:
 			try:
 				feature_map = feature_map.drop(columns = labelcol)
 			except KeyError:
 				continue
-		feature_map = feature_map.fillna(0.)
+		feature_map = feature_map.fillna(0.).astype(float)
 
 		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
 		y_full = self.data_df[self.target_features]

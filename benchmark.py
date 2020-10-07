@@ -34,7 +34,7 @@ args = {
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/benchmark_7_10_2/',
+	'OUTPATH' : '../results/benchmark_7_10_6/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
@@ -43,13 +43,13 @@ args = {
 	'use_cuda' : False,
 	'batch_size' : 128,
 	'test_batch_size' : 1000,
-	'lr' : 0.0001,
-	'log_interval' : 20,
-	'epochs' : 100,
+	'lr' : 0.001,
+	'log_interval' : 200,
+	'epochs' : 200,
 	'task' : 'classification',
 	# 'predictive_attributes' : ["length_of_stay", "will_die"],
 	# 'target_attributes' : ["will_die"],
-	'target_label' : "will_die",
+	'target_label' : "survive_current_icu",
 	'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
 	# 'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
 	'test_hospital_id' : 73 #'trainNminus1_test1'
@@ -131,6 +131,7 @@ optimizer = optim.SGD(model.parameters(), lr=args['lr'])
 
 
 roc_df = []
+cross_entropy_loss = nn.CrossEntropyLoss()
 
 
 # Training loop
@@ -150,7 +151,9 @@ def train(args, model, device, train_loader, optimizer, epoch):
 		optimizer.zero_grad()
 		output = model(data)
 
-		loss = F.nll_loss(output, target)
+		# loss = F.nll_loss(output, target)
+		# loss = F.binary_cross_entropy(output.type(torch.long), torch.cat((target, 1.-target)).type(torch.long))
+		loss = cross_entropy_loss(output, target)
 		loss.backward()
 
 		optimizer.step()
@@ -193,7 +196,8 @@ def test(model, device, test_loader, epoch, roc_df):
 			output = model(data)
 
 			# add losses together
-			test_loss += F.nll_loss(output, target, reduction='sum').item() 
+			# test_loss += F.nll_loss(output, target, reduction='sum').item() 
+			test_loss += cross_entropy_loss(output, target).item() 
 
 			# get the index of the max probability class
 			pred = output.argmax(dim=1, keepdim=True)  
@@ -378,7 +382,8 @@ def validate(mode, validation_loader):
 				output = model(data)
 
 				# add losses together
-				validation_loss += F.nll_loss(output, target, reduction='sum').item() 
+				# validation_loss += F.nll_loss(output, target, reduction='sum').item() 
+				validation_loss += cross_entropy_loss(output, target).item() 
 
 				# get the index of the max probability class
 				pred = output.argmax(dim=1, keepdim=True)  

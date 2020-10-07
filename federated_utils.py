@@ -103,9 +103,9 @@ class ClassificationNN(nn.Module):
 
 		x = self.activation(self.fully_connected_3(x))
 		x = self.bn_3final(x)
-		x = F.dropout(x, p=0.5, training=is_training, inplace=False)
+		# x = F.dropout(x, p=0.5, training=is_training, inplace=False)
 
-		x = F.log_softmax(self.fully_connected_final(x), dim=1)
+		x = F.softmax(self.fully_connected_final(x), dim=1)
 
 		return x
 
