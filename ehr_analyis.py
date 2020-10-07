@@ -1,4 +1,4 @@
-from data_management_new import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager, ICD10code_transformer
+from data_management_new import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager, ICD10code_transformer, DataAnalysis
 from models import Embedding, Classifier, Regressor
 from FLnetwork import FederatedLearner
 from network import NetworkTrainer
@@ -9,18 +9,20 @@ OUTPATH = '../results/2909_1/'
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--eICU_path', type=str, default='../medical_data/eicu/physionet.org/files/eicu-crd/2.0/', help='Directory path to original eICU files')
-parser.add_argument('--mydata_path', type=str, default='../mydata/bene_loaded_all.csv', help='Directory path to loaded dataframe')
-parser.add_argument('--mydata_path_processed', type=str, default='../mydata/bene_processed_all.csv', help='Directory path to processed dataframe')
-parser.add_argument('--datapath_federated', type=str, default='../mydata/federated', help='Directory path to processed individual hospital dataframes')
-parser.add_argument('--diag_table_path', type=str, default='../mydata/diagnosis_table_20k.csv', help='Directory path to processed individual hospital dataframes')
+parser.add_argument('--mydata_path_files', type=str, default='../mydata2/', help='Directory path to loaded dataframes')
+parser.add_argument('--mydata_path', type=str, default='../mydata2/loaded.csv', help='Directory path to loaded dataframe')
+parser.add_argument('--mydata_path_processed', type=str, default='../mydata2/processed_featureset.csv', help='Directory path to processed dataframe')
+parser.add_argument('--datapath_federated', type=str, default='../mydata2/federated', help='Directory path to processed individual hospital dataframes')
+parser.add_argument('--diag_table_path', type=str, default='../mydata2/diagnosis_table.csv', help='Directory path to processed individual hospital dataframes')
 
 parser.add_argument('--num_patients_to_load', type=int, default=-1, help='Number of patients to load from original data')
-parser.add_argument('--min_patients_per_hospital', type=int, default=100, help='Mininum number of patients per hospital for federated datasets')
+parser.add_argument('--num_hospitals_to_load', type=int, default=-1, help='Number of hospitals to load from original data')
+parser.add_argument('--min_patients_per_hospital', type=int, default=10, help='Mininum number of patients per hospital for federated datasets')
 parser.add_argument('--integrate_past_cases', type=int, default=0, help='Sum over all past + the current ICU stay if set to 1')
 
-parser.add_argument('--train_split', type=float, default=.5, help='Ratio of sample used for training')
+parser.add_argument('--train_split', type=float, default=.7, help='Ratio of sample used for training')
 parser.add_argument('--outdir', type=str, default=OUTPATH, help='Directory path to save output files. it will be created if not existent.')
-parser.add_argument('--load_data', type=int, default=0, help='Loads dataframe from eICU CSV files if set to 1')
+parser.add_argument('--load_data', type=int, default=1, help='Loads dataframe from eICU CSV files if set to 1')
 parser.add_argument('--process_data', type=int, default=1, help='processes dataframe from eICU CSV files if set to 1')
 
 parser.add_argument('--loss', type=str, default='categorical_crossentropy', help='Used loss function for federated classification')
@@ -37,6 +39,8 @@ parser.add_argument('--num_gobal_epochs', type=int, default=1000, help='Number o
 parser.add_argument('--learning_rate', type=int, default=1e-4, help='Learning rate')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
 parser.add_argument('--validation_freq', type=int, default=5, help='Validation frequency (number of epochs)')
+
+parser.add_argument('--split_strategy', type=str, default='trainN_testN', help='trainNminus1_test1 / trainN_testN')
 
 args = parser.parse_args()
 
@@ -57,7 +61,12 @@ if args.load_data:
 if args.process_data:
 	DataProcessor(args)
 
+DataAnalysis(args.mydata_path_processed, args.mydata_path_files + 'plots/')
 ICD10code_transformer(args)
+
+
+eICU_data = DataManager(args)
+
 
 # eICU_data = DataManager(
 # 	[

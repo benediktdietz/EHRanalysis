@@ -7,6 +7,67 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from sklearn.ensemble import IsolationForest
 from tqdm import tqdm
+from matplotlib import pyplot as plt
+plt.rcParams.update({'figure.autolayout': True})
+plt.rcParams.update({'font.size': 16})
+
+
+def patch_all_files_together(path_to_dir):
+
+	hospital_csv_files = [f for f in os.listdir(path_to_dir) if f.endswith('_hospital.csv')]
+	dummyvar = 0
+	for hospital_csv_file in hospital_csv_files:
+		print('loading data from ', hospital_csv_file)
+			
+		new_feature_set = pd.read_csv(path_to_dir + hospital_csv_file)
+
+		if dummyvar == 0:
+			full_feature_set = new_feature_set
+			dummyvar = 1
+		else:
+			full_feature_set = pd.concat([full_feature_set, new_feature_set])
+		print('dimension of new feature set: ', len(new_feature_set))
+		print('dimension of full feature set: ', len(full_feature_set))
+		print('--------')
+
+	pd.DataFrame(full_feature_set).to_csv(path_to_dir + 'full_loaded_set.csv')
+
+	return pd.DataFrame(full_feature_set)
+
+def patch_encoded_files_together(path_to_dir, list_of_hositalIDs, feature_df):
+
+	print('\n\npatching files together for hospitals: ', list_of_hositalIDs, '\n\n')
+	dummyvar = 0
+	for hospitalID in list_of_hositalIDs:
+
+		hospital_csv_file = path_to_dir + 'encoded_diagnosis_ICD9code_hospital_' + str(hospitalID) + '.csv'
+
+		print('loading data from ', hospital_csv_file)
+			
+		new_feature_set = pd.read_csv(path_to_dir + hospital_csv_file)
+
+		if dummyvar == 0:
+			full_feature_set = new_feature_set
+			dummyvar = 1
+		else:
+			full_feature_set = pd.concat([full_feature_set, new_feature_set], axis=0, sort=False).fillna(.0)
+
+		print('loaded set: '.ljust(15, '.'), len(new_feature_set))
+		print('full set: '.ljust(15, '.'), len(full_feature_set))
+		print('***********************')
+
+
+	# print('feature_map: ', len(feature_df))
+
+	# feature_df = pd.merge(feature_df, pd.DataFrame(full_feature_set), on='corr_id')
+	
+	# print('feature_map: ', len(feature_df))
+
+	pd.DataFrame(full_feature_set).to_csv(path_to_dir + 'full_encoded_set.csv')
+	# pd.DataFrame(feature_df).to_csv(path_to_dir + 'full_processed_set.csv')
+
+	return pd.DataFrame(full_feature_set)
+
 
 class eICU_DataLoader():
 
@@ -16,6 +77,8 @@ class eICU_DataLoader():
 		self.read_path = self.args.eICU_path
 		self.write_path = self.args.mydata_path
 		self.num_patients = self.args.num_patients_to_load
+		self.num_hospitals = self.args.num_hospitals_to_load
+		print('writing files to ', self.write_path)
 
 		self.build_patient_matrix()
 
@@ -28,7 +91,7 @@ class eICU_DataLoader():
 		patient_table = patient_table.loc[patient_table['age'] != 'nan']
 		patient_table = patient_table.loc[patient_table['gender'] != 'Unknown']
 
-		patient_table.sort_values('hospitalid', ascending=True)
+		# patient_table.sort_values('hospitalid', ascending=True)
 
 		print('\n\n')
 		print('patient_table loaded successfully'.ljust(50) + str(np.round(len(patient_table)/1000000., 1)) + ' Mio rows | ' + str(int(patient_table.shape[1])) + ' cols')
@@ -63,203 +126,236 @@ class eICU_DataLoader():
 			num_patients_to_load = len(patient_table['uniquepid'].unique())
 		else:
 			num_patients_to_load = self.num_patients
+		if self.num_hospitals < 0:
+			num_hospitals_to_load = len(patient_table['hospitalid'].unique())
+		else:
+			num_hospitals_to_load = self.num_hospitals
 
 		patientIDs = patient_table['uniquepid'].unique()[:num_patients_to_load]
+		hospitalIDs = patient_table['hospitalid'].unique()
+
+		hospital_population_table = []
+		for hospital_id_dummy in hospitalIDs:
+			dummytable = patient_table[patient_table['hospitalid'] == hospital_id_dummy]
+			hospital_population_table.append({
+				'hospital_id': hospital_id_dummy,
+				'hospital_population': len(dummytable),
+				})
+		hospital_population_table = pd.DataFrame(hospital_population_table).sort_values('hospital_population', ascending=False)
 
 		stratified_splitter = StratifiedShuffleSplit(n_splits=1, train_size=.8, random_state=123)
 
 
 		corr_id_df = []
-		print('looping through patient IDs in loaded tables to build a consolidated matrix...')
-		pbarfreq = 10
-		pbar = tqdm(total=num_patients_to_load)
-		for i in range(num_patients_to_load):
+		print('looping through patient IDs in loaded tables to build a consolidated matrix...\n\n')
 
-			if i % pbarfreq == 0: pbar.update(pbarfreq)
-
-			patient = patientIDs[i]
-
-			correlated_unitstay_ids = np.asarray(patient_table['patientunitstayid'].loc[patient_table['uniquepid'] == patient].values)
-
-			for j in range(len(correlated_unitstay_ids)):
-
-				# pasthistory_notetypes = np.asarray(pasthistory_table['pasthistorynotetype'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
-				# pasthistory_values = np.asarray(pasthistory_table['pasthistoryvalue'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
-
-				# correlated_lab_type_ids = np.asarray(lab_table['labtypeid'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
-				# correlated_lab_names = np.asarray(lab_table['labname'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
-
-				if patient_table['age'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() == '> 89':
-					age_dummy = 90
-				else:
-					try:
-						age_dummy = int(patient_table['age'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
-					except ValueError:
-						continue
-
-				if str(patient_table['ethnicity'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) == 'nan':
-					ethnicity_dummy = 'Unknown'
-				else:
-					ethnicity_dummy = str(patient_table['ethnicity'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
-
-				if remove_nans_from_codes:
-
-					icd9codes0 = diagnosis_table['icd9code'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values
-					icd9codes = []
-					for h in range(len(icd9codes0)):
-						if str(icd9codes0[h]) != 'nan':
-							icd9codes.append(str(icd9codes0[h]))
-				else:
-					icd9codes = diagnosis_table['icd9code'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values
+		for hospital_id_dummy in hospital_population_table['hospital_id'].values[:num_hospitals_to_load]:
 
 
-				current_visit_number = patient_table['unitvisitnumber'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
-				current_health_sys_id = patient_table['patienthealthsystemstayid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
-				
-				max_visits_for_current_stay = patient_table['unitvisitnumber'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].max()
-				if current_visit_number < max_visits_for_current_stay:
-					will_return = 1.
-				else:
-					will_return = 0.
+			print('\nprocessing hospital ', hospital_id_dummy)
 
-				unit_readmission_dummy = patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
-				if unit_readmission_dummy == 'readmit':
-					unit_readmission = 1.
-				else:
-					unit_readmission = 0.
-
-				will_die_dummy_unit_discharge_status = patient_table['unitdischargestatus'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].values
-				will_die_dummy_unit_discharge_location = patient_table['unitdischargelocation'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].values
-				if 'Expired' in will_die_dummy_unit_discharge_status or 'Death' in will_die_dummy_unit_discharge_location:
-					will_die = 1.
-				else:
-					will_die = 0.
-
-				survive_current_icu_dummy = patient_table['unitdischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
-				if survive_current_icu_dummy == 'Alive':
-					survive_current_icu = 1.
-				else:
-					survive_current_icu = 0.
-
-				will_readmit_dummy = patient_table[['unitstaytype', 'unitvisitnumber']].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id]
-				will_readmit_dummy = will_readmit_dummy['unitstaytype'].loc[will_readmit_dummy['unitvisitnumber'] > current_visit_number].values
-				# print('____', will_readmit_dummy)
-				if 'readmit' in will_readmit_dummy:
-					will_readmit = 1.
-				else:
-					will_readmit = 0.
-
-				icu_admission_time = np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
-				hospital_discharge_time = np.abs(patient_table['hospitaldischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
-				icu_discharge_time = np.abs(patient_table['unitdischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
-
-				weight_dummy = np.float(patient_table['admissionweight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
-				height_dummy = np.float(patient_table['admissionheight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) / 100.
-				bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-6)
-				if bmi_dummy > 200:
-					bmi_dummy = 0.
+			pbardummy, pbarfreq = 0, 10
+			pbar = tqdm(total=len(patient_table['uniquepid'].loc[patient_table['hospitalid'] == hospital_id_dummy].unique()))
+			for patient in patient_table['uniquepid'].loc[patient_table['hospitalid'] == hospital_id_dummy].unique():
 
 
-				lengthofstay = hospital_discharge_time
-				lengthofICU = icu_discharge_time
 
 
-				if lengthofstay > 24*5.:
-					will_stay_long = 1.
-				else:
-					will_stay_long = 0.
 
 
-				hospital_id = patient_table['hospitalid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+				# for i in range(num_patients_to_load):
+
+				pbar.update(1)
+				pbardummy += 1
+
+				# 	patient = patientIDs[i]
 
 
-				if patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item() == 'Female':
-					gender_dummy = 0.
-				else:
-					gender_dummy = 1.
+
+				correlated_unitstay_ids = np.asarray(patient_table['patientunitstayid'].loc[patient_table['uniquepid'] == patient].values)
+
+				for j in range(len(correlated_unitstay_ids)):
+
+					# pasthistory_notetypes = np.asarray(pasthistory_table['pasthistorynotetype'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
+					# pasthistory_values = np.asarray(pasthistory_table['pasthistoryvalue'].loc[pasthistory_table['patientunitstayid'] == correlated_unitstay_ids[j]].unique())
+
+					# correlated_lab_type_ids = np.asarray(lab_table['labtypeid'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
+					# correlated_lab_names = np.asarray(lab_table['labname'].loc[lab_table['patientunitstayid'] == correlated_unitstay_ids[j]].values)
+
+					if patient_table['age'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() == '> 89':
+						age_dummy = 90
+					else:
+						try:
+							age_dummy = int(patient_table['age'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
+						except ValueError:
+							continue
+
+					if str(patient_table['ethnicity'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) == 'nan':
+						ethnicity_dummy = 'Unknown'
+					else:
+						ethnicity_dummy = str(patient_table['ethnicity'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
+
+					if remove_nans_from_codes:
+
+						icd9codes0 = diagnosis_table['icd9code'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values
+						icd9codes = []
+						for h in range(len(icd9codes0)):
+							if str(icd9codes0[h]) != 'nan':
+								icd9codes.append(str(icd9codes0[h]))
+					else:
+						icd9codes = diagnosis_table['icd9code'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values
 
 
-				corr_id_df.append(
-					{
-					'patient_id': patient,
-					'health_system_id': current_health_sys_id,
-					'corr_id': correlated_unitstay_ids[j],
-					'gender': gender_dummy,
-					'age': age_dummy,
-					'weight': weight_dummy,
-					'height': height_dummy,
-					'bmi': bmi_dummy,
-					'ethnicity': ethnicity_dummy,
-					'visit_number': current_visit_number,
-					'icu_admission_time': np.round(np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.), 2),
-					'length_of_stay': lengthofstay,
-					'length_of_icu': lengthofICU,
-					'icu_discharge': icu_discharge_time,
-					'will_return': will_return,
-					'will_die': will_die,
-					'will_readmit': will_readmit,
-					'will_stay_long': will_stay_long,
-					'survive_current_icu': survive_current_icu,
-					'unit_readmission': unit_readmission,
-					'visits_current_stay': max_visits_for_current_stay,
-					'hospital_discharge_status': patient_table['hospitaldischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'hospital_admit_offset': icu_admission_time,
-					'hospital_discharge_offset': hospital_discharge_time,
-					'hospital_discharge_year': patient_table['hospitaldischargeyear'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'hospital_id': hospital_id,
-					'unit_admit_source': patient_table['unitadmitsource'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'unit_type': patient_table['unittype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'unit_discharge_status': patient_table['unitdischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'unit_discharge_offset': icu_discharge_time,
-					'unit_discharge_location': patient_table['unitdischargelocation'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					'unit_stay_type': patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
-					# 'lab_ids': correlated_lab_ids,
-					# 'lab_type_ids': correlated_lab_type_ids,
-					# 'lab_names': correlated_lab_names,
-					# 'lab_results': correlated_lab_results,
-					# 'medication_ids': medication_ids,
-					# 'diagnosis_ids': diagnosis_ids,
-					# 'drug_strings_prescribed': np.asarray(drug_strings_prescribed),
-					# 'drug_codes_prescribed': np.asarray(drug_codes_prescribed),
-					'diagnosis_activeUponDischarge': diagnosis_table['activeupondischarge'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
-					'diagnosis_offset': diagnosis_table['diagnosisoffset'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
-					# 'diagnosis_priority': diagnosis_table['diagnosispriority'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
-					'diagnosis_ICD9code': np.asarray(icd9codes),
-					# 'diagnosis_string': diagnosis_table['diagnosisstring'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
-					# 'pasthistory_notetypes': pasthistory_notetypes,
-					# 'pasthistory_values': pasthistory_values,
-					'aps_intubated': get_aps_values('intubated', correlated_unitstay_ids[j]),
-					'aps_vent': get_aps_values('vent', correlated_unitstay_ids[j]),
-					'aps_dialysis': get_aps_values('dialysis', correlated_unitstay_ids[j]),
-					'aps_eyes': get_aps_values('eyes', correlated_unitstay_ids[j]),
-					'aps_motor': get_aps_values('motor', correlated_unitstay_ids[j]),
-					'aps_verbal': get_aps_values('verbal', correlated_unitstay_ids[j]),
-					'aps_meds': get_aps_values('meds', correlated_unitstay_ids[j]),
-					'aps_urine': get_aps_values('urine', correlated_unitstay_ids[j]),
-					'aps_wbc': get_aps_values('wbc', correlated_unitstay_ids[j]),
-					'aps_temperature': get_aps_values('temperature', correlated_unitstay_ids[j]),
-					'aps_respiratoryRate': get_aps_values('respiratoryrate', correlated_unitstay_ids[j]),
-					'aps_sodium': get_aps_values('sodium', correlated_unitstay_ids[j]),
-					'aps_heartrate': get_aps_values('heartrate', correlated_unitstay_ids[j]),
-					'aps_meanBp': get_aps_values('meanbp', correlated_unitstay_ids[j]),
-					'aps_ph': get_aps_values('ph', correlated_unitstay_ids[j]),
-					'aps_hematocrit': get_aps_values('hematocrit', correlated_unitstay_ids[j]),
-					'aps_creatinine': get_aps_values('creatinine', correlated_unitstay_ids[j]),
-					'aps_albumin': get_aps_values('albumin', correlated_unitstay_ids[j]),
-					'aps_pao2': get_aps_values('pao2', correlated_unitstay_ids[j]),
-					'aps_pco2': get_aps_values('pco2', correlated_unitstay_ids[j]),
-					'aps_bun': get_aps_values('bun', correlated_unitstay_ids[j]),
-					'aps_glucose': get_aps_values('glucose', correlated_unitstay_ids[j]),
-					'aps_bilirubin': get_aps_values('bilirubin', correlated_unitstay_ids[j]),
-					'aps_fio2': get_aps_values('fio2', correlated_unitstay_ids[j]),
-					})
+					current_visit_number = patient_table['unitvisitnumber'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+					current_health_sys_id = patient_table['patienthealthsystemstayid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+					
+					max_visits_for_current_stay = patient_table['unitvisitnumber'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].max()
+					if current_visit_number < max_visits_for_current_stay:
+						will_return = 1.
+					else:
+						will_return = 0.
+
+					unit_readmission_dummy = patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+					if unit_readmission_dummy == 'readmit':
+						unit_readmission = 1.
+					else:
+						unit_readmission = 0.
+
+					will_die_dummy_unit_discharge_status = patient_table['unitdischargestatus'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].values
+					will_die_dummy_unit_discharge_location = patient_table['unitdischargelocation'].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id].values
+					if 'Expired' in will_die_dummy_unit_discharge_status or 'Death' in will_die_dummy_unit_discharge_location:
+						will_die = 1.
+					else:
+						will_die = 0.
+
+					survive_current_icu_dummy = patient_table['unitdischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+					if survive_current_icu_dummy == 'Alive':
+						survive_current_icu = 1.
+					else:
+						survive_current_icu = 0.
+
+					will_readmit_dummy = patient_table[['unitstaytype', 'unitvisitnumber']].loc[patient_table['patienthealthsystemstayid'] == current_health_sys_id]
+					will_readmit_dummy = will_readmit_dummy['unitstaytype'].loc[will_readmit_dummy['unitvisitnumber'] > current_visit_number].values
+					# print('____', will_readmit_dummy)
+					if 'readmit' in will_readmit_dummy:
+						will_readmit = 1.
+					else:
+						will_readmit = 0.
+
+					icu_admission_time = np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
+					hospital_discharge_time = np.abs(patient_table['hospitaldischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
+					icu_discharge_time = np.abs(patient_table['unitdischargeoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.)
+
+					weight_dummy = np.float(patient_table['admissionweight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item())
+					height_dummy = np.float(patient_table['admissionheight'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()) / 100.
+					bmi_dummy = weight_dummy / ((height_dummy * height_dummy) + 1e-6)
+					if bmi_dummy > 200:
+						bmi_dummy = 0.
 
 
-		pbar.close()
-		print('\n')
+					lengthofstay = hospital_discharge_time
+					lengthofICU = icu_discharge_time
 
 
-		pd.DataFrame(corr_id_df).to_csv(self.write_path)
+					if lengthofstay > 24*5.:
+						will_stay_long = 1.
+					else:
+						will_stay_long = 0.
+
+
+					hospital_id = patient_table['hospitalid'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item()
+
+
+					if patient_table['gender'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[0]].values.item() == 'Female':
+						gender_dummy = 0.
+					else:
+						gender_dummy = 1.
+
+
+					corr_id_df.append(
+						{
+						'patient_id': patient,
+						'health_system_id': current_health_sys_id,
+						'corr_id': correlated_unitstay_ids[j],
+						'gender': gender_dummy,
+						'age': age_dummy,
+						'weight': weight_dummy,
+						'height': height_dummy,
+						'bmi': bmi_dummy,
+						'ethnicity': ethnicity_dummy,
+						'visit_number': current_visit_number,
+						'icu_admission_time': np.round(np.abs(patient_table['hospitaladmitoffset'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item() / 60.), 2),
+						'length_of_stay': lengthofstay,
+						'length_of_icu': lengthofICU,
+						'icu_discharge': icu_discharge_time,
+						'will_return': will_return,
+						'will_die': will_die,
+						'will_readmit': will_readmit,
+						'will_stay_long': will_stay_long,
+						'survive_current_icu': survive_current_icu,
+						'unit_readmission': unit_readmission,
+						'visits_current_stay': max_visits_for_current_stay,
+						'hospital_discharge_status': patient_table['hospitaldischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'hospital_admit_offset': icu_admission_time,
+						'hospital_discharge_offset': hospital_discharge_time,
+						'hospital_discharge_year': patient_table['hospitaldischargeyear'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'hospital_id': hospital_id,
+						'unit_admit_source': patient_table['unitadmitsource'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'unit_type': patient_table['unittype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'unit_discharge_status': patient_table['unitdischargestatus'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'unit_discharge_offset': icu_discharge_time,
+						'unit_discharge_location': patient_table['unitdischargelocation'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						'unit_stay_type': patient_table['unitstaytype'].loc[patient_table['patientunitstayid'] == correlated_unitstay_ids[j]].values.item(),
+						# 'lab_ids': correlated_lab_ids,
+						# 'lab_type_ids': correlated_lab_type_ids,
+						# 'lab_names': correlated_lab_names,
+						# 'lab_results': correlated_lab_results,
+						# 'medication_ids': medication_ids,
+						# 'diagnosis_ids': diagnosis_ids,
+						# 'drug_strings_prescribed': np.asarray(drug_strings_prescribed),
+						# 'drug_codes_prescribed': np.asarray(drug_codes_prescribed),
+						'diagnosis_activeUponDischarge': diagnosis_table['activeupondischarge'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
+						'diagnosis_offset': diagnosis_table['diagnosisoffset'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
+						# 'diagnosis_priority': diagnosis_table['diagnosispriority'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
+						'diagnosis_ICD9code': np.asarray(icd9codes),
+						# 'diagnosis_string': diagnosis_table['diagnosisstring'].loc[diagnosis_table['patientunitstayid'] == correlated_unitstay_ids[j]].values,
+						# 'pasthistory_notetypes': pasthistory_notetypes,
+						# 'pasthistory_values': pasthistory_values,
+						'aps_intubated': get_aps_values('intubated', correlated_unitstay_ids[j]),
+						'aps_vent': get_aps_values('vent', correlated_unitstay_ids[j]),
+						'aps_dialysis': get_aps_values('dialysis', correlated_unitstay_ids[j]),
+						'aps_eyes': get_aps_values('eyes', correlated_unitstay_ids[j]),
+						'aps_motor': get_aps_values('motor', correlated_unitstay_ids[j]),
+						'aps_verbal': get_aps_values('verbal', correlated_unitstay_ids[j]),
+						'aps_meds': get_aps_values('meds', correlated_unitstay_ids[j]),
+						'aps_urine': get_aps_values('urine', correlated_unitstay_ids[j]),
+						'aps_wbc': get_aps_values('wbc', correlated_unitstay_ids[j]),
+						'aps_temperature': get_aps_values('temperature', correlated_unitstay_ids[j]),
+						'aps_respiratoryRate': get_aps_values('respiratoryrate', correlated_unitstay_ids[j]),
+						'aps_sodium': get_aps_values('sodium', correlated_unitstay_ids[j]),
+						'aps_heartrate': get_aps_values('heartrate', correlated_unitstay_ids[j]),
+						'aps_meanBp': get_aps_values('meanbp', correlated_unitstay_ids[j]),
+						'aps_ph': get_aps_values('ph', correlated_unitstay_ids[j]),
+						'aps_hematocrit': get_aps_values('hematocrit', correlated_unitstay_ids[j]),
+						'aps_creatinine': get_aps_values('creatinine', correlated_unitstay_ids[j]),
+						'aps_albumin': get_aps_values('albumin', correlated_unitstay_ids[j]),
+						'aps_pao2': get_aps_values('pao2', correlated_unitstay_ids[j]),
+						'aps_pco2': get_aps_values('pco2', correlated_unitstay_ids[j]),
+						'aps_bun': get_aps_values('bun', correlated_unitstay_ids[j]),
+						'aps_glucose': get_aps_values('glucose', correlated_unitstay_ids[j]),
+						'aps_bilirubin': get_aps_values('bilirubin', correlated_unitstay_ids[j]),
+						'aps_fio2': get_aps_values('fio2', correlated_unitstay_ids[j]),
+						})
+
+
+			pbar.close()
+			print('\n')
+
+			pd.DataFrame(corr_id_df).to_csv(self.write_path[:-4] + '_' + str(hospital_id_dummy) + '_hospital.csv')
+			corr_id_df = []
+
+
+		# pd.DataFrame(corr_id_df).to_csv(self.write_path)
 
 		patient_table = []
 		medication_table = []
@@ -275,15 +371,31 @@ class DataProcessor():
 		self.args = args
 		self.read_path = self.args.mydata_path
 		self.write_path = self.args.mydata_path_processed
-
+		self.read_path_files = self.args.mydata_path_files
+		print('writing files to ', self.read_path_files)
 		self.min_patients_per_client = self.args.min_patients_per_hospital
 
-		self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
+		# self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
+		self.dataframe = patch_all_files_together(self.read_path_files)
+		self.dataframe = self.dataframe.drop(columns='Unnamed: 0')
+
+
+		hospital_population_table = []
+		for hospital_id_dummy in self.dataframe['hospital_id'].unique():
+			dummytable = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
+			hospital_population_table.append({
+				'hospital_id': hospital_id_dummy,
+				'hospital_population': len(dummytable),
+				})
+		hospital_population_table = pd.DataFrame(hospital_population_table).sort_values('hospital_population', ascending=False)
+		self.loaded_hospital_ids = hospital_population_table['hospital_id'].iloc[:self.args.num_hospitals_to_load].values
+		print('\n\n************* loaded_hospital_ids ', self.loaded_hospital_ids, '\n\n')
+
 
 		categorical_feature_names = [
 			'gender',
 			'ethnicity',
-			'hospital_discharge_status',
+			# 'hospital_discharge_status',
 			'hospital_discharge_year',
 			'unit_discharge_status',
 			'unit_admit_source',
@@ -309,17 +421,32 @@ class DataProcessor():
 		self.feature_df = pd.get_dummies(self.dataframe, columns = categorical_feature_names, prefix = categorical_feature_names)
 		
 
-		self.process_array_cols(array_features)
+		self.process_array_cols_new(array_features)
 		
 		if self.args.integrate_past_cases:
 			self.consolidate_previous_ICUs()
 
 		self.add_hospital_stats()
 
-		self.feature_df = self.feature_df.loc[self.feature_df['num_patients'] >= self.min_patients_per_client]
+		self.feature_df = self.feature_df.loc[self.feature_df['clinic_stats_num_patients'] >= self.min_patients_per_client]
+
+		processed_features = patch_encoded_files_together(self.read_path_files, self.loaded_hospital_ids, self.feature_df)
+		self.feature_df = pd.merge(self.feature_df, processed_features, on='corr_id')
+		self.feature_df = self.feature_df.drop(columns=['diagnosis_activeUponDischarge', 'diagnosis_offset'])
+		try:
+			self.feature_df = self.feature_df.drop(columns='Unnamed: 0_x')
+		except KeyError:
+			pass
+		try:
+			self.feature_df = self.feature_df.drop(columns='Unnamed: 0')
+		except KeyError:
+			pass
 
 		# self.make_federated_sets()
 
+		self.feature_df.to_csv(self.write_path[:-4] + '_with_DiagnosisCodes.csv')
+
+		self.feature_df = self.feature_df.drop(columns=array_features)
 		self.feature_df.to_csv(self.write_path)
 
 	def process_array_cols(self, col_names):
@@ -363,7 +490,6 @@ class DataProcessor():
 
 					self.dataframe[col_name].iloc[row] = nice_dummy_list2
 
-
 				if col_name in ['drug_strings_prescribed', 'diagnosis_ICD9code', 'diagnosis_string', 'lab_names', 'diagnosis_priority']:
 
 					nice_dummy_list = list(re.split("'", self.dataframe[col_name].iloc[row]))
@@ -388,7 +514,6 @@ class DataProcessor():
 									nice_dummy_list2.append(nice_dummy_list[dummy_i])
 
 					self.dataframe[col_name].iloc[row] = nice_dummy_list2
-
 
 				if col_name in ['medication_ids', 'diagnosis_ids', 'drug_codes_prescribed', 'lab_type_ids']:
 
@@ -442,9 +567,8 @@ class DataProcessor():
 				
 
 				if progbar:	
+					pbar.update(1)
 					pbarcounter += 1
-					if pbarcounter % pbarfreq == 0:
-						pbar.update(pbarfreq)
 
 
 				if row == 0:
@@ -466,6 +590,149 @@ class DataProcessor():
 					'\n\n************************************\ndf_onehot DataFrame:\n', 
 					self.feature_df, 
 					'\n************************************\n\n\n')
+
+		pd.DataFrame(self.feature_df).to_csv(self.write_path[:-4] + '_diagnosis_loaded.csv')
+
+	def process_array_cols_new(self, col_names):
+
+		print_out = False
+		progbar = True
+		pbarfreq = 10
+		pbarcounter = 0
+
+		for hospital_id_dummy in self.loaded_hospital_ids:
+			print('\nprocessing columns for hospital ', hospital_id_dummy)
+			dummy_hospital_df = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
+
+			for col_name in col_names:
+				# print('\nlooping through ' + col_name + ' column to build encoded feature map...')
+				if progbar: pbar = tqdm(total=len(dummy_hospital_df))
+
+				for row in range(len(dummy_hospital_df)):
+
+					if col_name in ['pasthistory_notetypes', 'pasthistory_values']:
+
+						nice_dummy_list = list(re.split("'", dummy_hospital_df[col_name].iloc[row]))
+
+						if '[' in nice_dummy_list: nice_dummy_list.remove('[')
+						if ']' in nice_dummy_list: nice_dummy_list.remove(']')
+						if '[]' in nice_dummy_list: nice_dummy_list.remove('[]')
+						if '[nan ' in nice_dummy_list: nice_dummy_list.remove('[nan ')
+						if ' nan nan]' in nice_dummy_list: nice_dummy_list.remove(' nan nan]')
+						if ' nan nan\n ' in nice_dummy_list: nice_dummy_list.remove(' nan nan\n ')
+						
+						nice_dummy_list2 = []
+						for dummy_i in range(len(nice_dummy_list)):
+							# if nice_dummy_list[dummy_i] != '\n ':
+							if ' nan' not in nice_dummy_list[dummy_i] and len(nice_dummy_list[dummy_i]) > 1:
+								if '\n' not in nice_dummy_list[dummy_i]:
+									if nice_dummy_list[dummy_i][0] == '[':
+										nice_dummy_list2.append(nice_dummy_list[dummy_i][1:])
+									elif nice_dummy_list[dummy_i][-2:] == '\n':
+										nice_dummy_list2.append(nice_dummy_list[dummy_i][:-2])
+									else:
+										nice_dummy_list2.append(nice_dummy_list[dummy_i])
+
+						dummy_hospital_df[col_name].iloc[row] = nice_dummy_list2
+
+					if col_name in ['drug_strings_prescribed', 'diagnosis_ICD9code', 'diagnosis_string', 'lab_names', 'diagnosis_priority']:
+
+						nice_dummy_list = list(re.split("'", dummy_hospital_df[col_name].iloc[row]))
+
+						if '[' in nice_dummy_list: nice_dummy_list.remove('[')
+						if ']' in nice_dummy_list: nice_dummy_list.remove(']')
+						if '[]' in nice_dummy_list: nice_dummy_list.remove('[]')
+						if '[nan ' in nice_dummy_list: nice_dummy_list.remove('[nan ')
+						if ' nan nan]' in nice_dummy_list: nice_dummy_list.remove(' nan nan]')
+						if ' nan nan\n ' in nice_dummy_list: nice_dummy_list.remove(' nan nan\n ')
+						
+						nice_dummy_list2 = []
+						for dummy_i in range(len(nice_dummy_list)):
+							# if nice_dummy_list[dummy_i] != '\n ':
+							if ' nan' not in nice_dummy_list[dummy_i] and len(nice_dummy_list[dummy_i]) > 1:
+								if '\n' not in nice_dummy_list[dummy_i]:
+									if nice_dummy_list[dummy_i][0] == '[':
+										nice_dummy_list2.append(nice_dummy_list[dummy_i][1:])
+									elif nice_dummy_list[dummy_i][-2:] == '\n':
+										nice_dummy_list2.append(nice_dummy_list[dummy_i][:-2])
+									else:
+										nice_dummy_list2.append(nice_dummy_list[dummy_i])
+
+						dummy_hospital_df[col_name].iloc[row] = nice_dummy_list2
+
+					if col_name in ['medication_ids', 'diagnosis_ids', 'drug_codes_prescribed', 'lab_type_ids']:
+
+						nice_dummy_list = list(re.split(" ", dummy_hospital_df[col_name].iloc[row]))
+
+						if '[' in nice_dummy_list: nice_dummy_list.remove('[')
+						if ']' in nice_dummy_list: nice_dummy_list.remove(']')
+						if '[]' in nice_dummy_list: nice_dummy_list.remove('[]')
+						if '\n' in nice_dummy_list: nice_dummy_list.remove('\n')
+						if '[nan ' in nice_dummy_list: nice_dummy_list.remove('[nan ')
+						if ' nan nan]' in nice_dummy_list: nice_dummy_list.remove(' nan nan]')
+						if ' nan nan\n ' in nice_dummy_list: nice_dummy_list.remove(' nan nan\n ')
+						
+						nice_dummy_list2 = []
+						for dummy_i in range(len(nice_dummy_list)):
+							if ' nan' not in nice_dummy_list[dummy_i] and nice_dummy_list[dummy_i] != '':
+								try: nice_dummy_list2.append(int(nice_dummy_list[dummy_i]))
+								except ValueError:
+									dummy_string = str(nice_dummy_list[dummy_i])
+									if len(dummy_string) < 2:
+										continue
+									if dummy_string[0] == '[':
+										dummy_string = dummy_string[1:]
+									if dummy_string[-1] == ']':
+										dummy_string = dummy_string[:-1]
+									# if dummy_string[-2] == '\n' and len(dummy_string) > 2:
+									# 	dummy_string = dummy_string[:-2]
+									try: 
+										nice_dummy_list2.append(int(dummy_string))
+									except ValueError:
+										continue
+											
+
+						dummy_hospital_df[col_name].iloc[row] = nice_dummy_list2
+
+
+					onehot_keys = np.concatenate([['corr_id'], np.asarray(pd.get_dummies(
+						dummy_hospital_df[col_name].iloc[row],
+						prefix = col_name
+						).sum(0).keys().values)])
+					onehot_values = np.reshape(
+						np.concatenate(
+							[[dummy_hospital_df['corr_id'].iloc[row]], 
+							np.asarray(
+								pd.get_dummies(
+									dummy_hospital_df[col_name].iloc[row], 
+									prefix = col_name
+									).sum(0).values, 
+								dtype=np.int)
+							]), (1,-1))
+					
+					if progbar:	
+						pbar.update(1)
+						pbarcounter += 1
+							
+
+					if row == 0: dummy_df = pd.DataFrame(onehot_values, index = [row], columns = onehot_keys)
+					else: dummy_df = pd.concat([dummy_df, pd.DataFrame(onehot_values, index = [row], columns = onehot_keys)], axis=0, sort=False).fillna(.0)
+
+				if progbar: pbar.close()
+
+				pd.DataFrame(dummy_df).to_csv(self.read_path_files + 'encoded_' + col_name + '_hospital_' + str(hospital_id_dummy) + '.csv')
+
+
+			# self.feature_df.drop(columns=col_name)
+			# self.feature_df = pd.merge(self.feature_df, dummy_df, on='corr_id')
+
+			# if print_out: 
+			# 	print(
+			# 		'\n\n************************************\ndf_onehot DataFrame:\n', 
+			# 		self.feature_df, 
+			# 		'\n************************************\n\n\n')
+
+		# pd.DataFrame(self.feature_df).to_csv(self.write_path[:-4] + '_diagnosis_loaded.csv')
 
 	def consolidate_previous_ICUs(self):
 		
@@ -554,7 +821,7 @@ class DataProcessor():
 		corr_ids = self.feature_df['corr_id'].unique()
 
 		print('\nconsolidating previous ICU features...')
-		pbar = tqdm(total=len(corr_ids))
+		pbar = tqdm(total=len(corr_ids)+1)
 		for correlated_id in corr_ids:
 			pbar.update(1)
 			corr_health_id = self.feature_df['health_system_id'].loc[self.feature_df['corr_id'] == correlated_id].values.item()
@@ -729,18 +996,18 @@ class DataProcessor():
 		pbar.close()
 
 		clinic_stats_df = pd.DataFrame(clinic_stats_df)
-		clinic_stats_df.to_csv('clinic_stats.csv')
+		clinic_stats_df.sort_values('num_patients', ascending=False).to_csv(self.read_path_files + 'clinic_stats.csv')
 		clinic_stats_df.reset_index(drop=True)
 
 
 		print('\nattaching hospital stats dataframe to feature map...')
-		pbar = tqdm(total=len(self.feature_df['corr_id'].unique()))
+		pbar = tqdm(total=len(self.feature_df['corr_id'].unique())+1)
 
 		extra_hospital_keys = clinic_stats_df.keys().values
 		# self.feature_df[clinic_stats_df.keys().values] = 0.
 		for extra_hospital_key in extra_hospital_keys:
 			if extra_hospital_key != 'hospital_id':
-				self.feature_df[extra_hospital_key] = 0.
+				self.feature_df['clinic_stats_' + extra_hospital_key] = 0.
 
 
 
@@ -748,14 +1015,14 @@ class DataProcessor():
 
 		for stay_id in self.feature_df['corr_id'].unique():
 
-			hospital_id_dummy = self.feature_df['hospital_id'].loc[self.feature_df['corr_id'] == stay_id].values.item()
+			hospital_id_dummy = self.feature_df['hospital_id'].loc[self.feature_df['corr_id'] == stay_id].values[0]
 
 			for clinic_key in extra_hospital_keys:
 
 				if clinic_key != 'hospital_id':
 
 					dummy = clinic_stats_df[clinic_key].loc[clinic_stats_df['hospital_id'] == hospital_id_dummy].values.item()
-					self.feature_df[clinic_key].loc[self.feature_df['corr_id'] == stay_id] = dummy
+					self.feature_df['clinic_stats_' + clinic_key].loc[self.feature_df['corr_id'] == stay_id] = dummy
 
 			pbar.update(1)
 		pbar.close()
@@ -783,7 +1050,7 @@ class ICD10code_transformer():
 	def __init__(self, args):
 
 		self.args = args
-		self.feature_df = pd.read_csv(self.args.mydata_path_processed)
+		self.feature_df = pd.read_csv(self.args.mydata_path_processed[:-4] + '_with_DiagnosisCodes.csv')
 
 		self.diagnosis_table = self.transfom_ICD10_codes()
 		self.diagnosis_table.to_csv(self.args.diag_table_path)
@@ -858,6 +1125,95 @@ class ICD10code_transformer():
 						})
 
 		return pd.DataFrame(icd10table)
+
+class DataAnalysis():
+
+	def __init__(self, path_to_processed_feature_map, outpath):
+
+		self.outpath = outpath
+		self.data = pd.read_csv(path_to_processed_feature_map)
+		try:
+			self.data = self.data.drop(columns='Unnamed: 0')
+		except KeyError:
+			pass
+
+		self.label_cols = [
+			# doesnt make sense to include or not properly formatted cols
+			'patient_id',
+			'health_system_id',
+			'corr_id',
+			'hospital_discharge_year_2014',
+			'hospital_discharge_year_2015',
+			# labels we want to predict or shouldnt be available for our predictions
+			'icu_admission_time',
+			'icu_discharge',
+			'diagnosis_offset',
+			'diagnosis_activeUponDischarge',
+			'diagnosis_ICD9code',
+			'unit_discharge_offset',
+			'unit_discharge_status_Alive',
+			'unit_discharge_status_Expired',
+			'unit_discharge_location_Death',
+			'unit_discharge_location_Floor',
+			'unit_discharge_location_Home',
+			'unit_discharge_location_Other External',
+			'unit_discharge_location_Other Hospital',
+			'unit_discharge_location_Other ICU',
+			'unit_discharge_location_Skilled Nursing Facility',
+			'unit_discharge_location_Step-Down Unit (SDU)',
+			'unit_stay_type_admit',
+			'unit_stay_type_readmit',
+			'unit_stay_type_stepdown/other',
+			'unit_stay_type_transfer',
+			'hospital_discharge_offset',
+			'hospital_discharge_status_Alive',
+			'hospital_discharge_status_Expired',
+			'visits_current_stay',
+			]
+
+		self.target_features = [
+			'length_of_stay',
+			'length_of_icu',
+			'will_return',
+			'will_die',
+			'will_readmit',
+			'will_stay_long',
+			'unit_readmission',
+			'survive_current_icu',
+			]
+
+		for deletecol in self.label_cols:
+			try:
+				self.data = self.data.drop(columns = deletecol)
+			except KeyError:
+				continue
+		self.data = self.data.fillna(0.)
+
+		try: os.makedirs(self.outpath)
+		except FileExistsError: pass
+
+		self.get_correlations('pearson')
+		self.get_correlations('spearman')
+
+	def get_correlations(self, method):
+
+		correlation_matrix = self.data.corr(method=method)
+
+		for target_feat in self.target_features:
+
+			target_correaltions = correlation_matrix[target_feat]
+
+			target_correaltions = pd.DataFrame(target_correaltions).abs().sort_values(target_feat, ascending=False).iloc[1:201]
+
+			print('\ntarget_correaltions\n')
+			print(target_correaltions)
+
+			plt.figure(figsize=(10,50))
+			plt.title(target_feat)
+			plt.barh(target_correaltions.index,target_correaltions[target_feat])
+			plt.grid()
+			plt.savefig(self.outpath + 'corr_' + method + '_' + target_feat + '.pdf')
+			plt.close()
 
 class DataSetIterator(Dataset):
 
@@ -971,7 +1327,15 @@ class DataManager():
 
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
 		# feature_map = np.nan_to_num(feature_map)
-		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+
+		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+		feature_map = self.data_df
+		for labelcol in feature_map:
+			try:
+				feature_map = feature_map.drop(columns = labelcol)
+			except KeyError:
+				continue
+		feature_map = feature_map.fillna(0.)
 
 		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
 		y_full = self.data_df[self.target_features]
@@ -1051,7 +1415,16 @@ class DataManager():
 
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.).values
 		# feature_map = np.nan_to_num(feature_map)
-		feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+		
+		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
+
+		feature_map = self.data_df
+		for labelcol in feature_map:
+			try:
+				feature_map = feature_map.drop(columns = labelcol)
+			except KeyError:
+				continue
+		feature_map = feature_map.fillna(0.)
 
 		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
 		y_full = self.data_df[self.target_features]
