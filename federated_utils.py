@@ -109,6 +109,113 @@ class ClassificationNN(nn.Module):
 
 		return x
 
+class SmallClassificationNN(nn.Module):
+
+	def __init__(self, input_size):
+
+		super(SmallClassificationNN, self).__init__()
+
+		self.activation = torch.sigmoid
+		self.softmax = F.softmax
+
+		self.fully_connected = nn.Linear(input_size, input_size)
+		self.fully_connected2 = nn.Linear(input_size, 2)
+
+		torch.nn.init.xavier_uniform_(self.fully_connected.weight)
+		torch.nn.init.xavier_uniform_(self.fully_connected2.weight)
+
+	def forward(self, x, is_training=True):
+	
+		x = self.activation(self.fully_connected(x))
+		x = self.fully_connected2(x)
+
+		x = F.softmax(x, dim=1)
+
+		return x
+
+class SmallClassificationNN_2(nn.Module):
+
+	def __init__(self, input_size):
+
+		super(SmallClassificationNN_2, self).__init__()
+
+		self.activation = torch.sigmoid
+		self.softmax = F.softmax
+		self.fully_connected = nn.Linear(input_size, 2)
+
+		torch.nn.init.xavier_uniform_(self.fully_connected.weight)
+
+	def forward(self, x, is_training=True):
+	
+		x = self.fully_connected(x)
+		x = self.activation(x)
+
+		x = F.softmax(x, dim=1)
+
+		return x
+
+class RegressionNN(nn.Module):
+
+	def __init__(self, input_size):
+
+		super(RegressionNN, self).__init__()
+
+		outdim_layer0 = 2048
+		outdim_layer1 = 1024
+		outdim_layer2 = 512
+		outdim_layer3 = 128
+
+		self.activation = torch.sigmoid
+		# self.activation = F.relu
+		# self.activation = F.elu
+		# self.activation = torch.tanh
+
+		self.dropout = nn.Dropout
+		self.softmax = F.softmax
+
+		self.fully_connected_0 = nn.Linear(input_size, outdim_layer0)
+		self.fully_connected_1 = nn.Linear(outdim_layer0, outdim_layer1)
+		self.fully_connected_2 = nn.Linear(outdim_layer1, outdim_layer2)
+		self.fully_connected_3 = nn.Linear(outdim_layer2, outdim_layer3)
+		self.fully_connected_final = nn.Linear(outdim_layer3, 1)
+
+		self.bn_00 = nn.BatchNorm1d(input_size, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+		self.bn_01 = nn.BatchNorm1d(outdim_layer0, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+		self.bn_12 = nn.BatchNorm1d(outdim_layer1, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+		self.bn_23 = nn.BatchNorm1d(outdim_layer2, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+		self.bn_3final = nn.BatchNorm1d(outdim_layer3, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+
+		torch.nn.init.xavier_uniform_(self.fully_connected_0.weight)
+		torch.nn.init.xavier_uniform_(self.fully_connected_1.weight)
+		torch.nn.init.xavier_uniform_(self.fully_connected_2.weight)
+		torch.nn.init.xavier_uniform_(self.fully_connected_3.weight)
+		torch.nn.init.xavier_uniform_(self.fully_connected_final.weight)
+
+
+	def forward(self, x, is_training=True):
+		
+		x = self.bn_00(x.float())
+
+		x = self.activation(self.fully_connected_0(x))
+		x = self.bn_01(x)
+		x = F.dropout(x, p=0.5, training=is_training, inplace=False)
+
+		x = self.activation(self.fully_connected_1(x))
+		x = self.bn_12(x)
+		x = F.dropout(x, p=0.5, training=is_training, inplace=False)
+
+		x = self.activation(self.fully_connected_2(x))
+		x = self.bn_23(x)
+		x = F.dropout(x, p=0.5, training=is_training, inplace=False)
+
+		x = self.activation(self.fully_connected_3(x))
+		x = self.bn_3final(x)
+		# x = F.dropout(x, p=0.5, training=is_training, inplace=False)
+
+		x = self.fully_connected_final(x)
+
+		return x
+
 
 def get_data_from_DataManager(path, target_labels):
 	eICU_data = DataManager(

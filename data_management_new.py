@@ -4,6 +4,10 @@ import pandas as pd
 pd.set_option('mode.chained_assignment', None)
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.inspection import permutation_importance
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.metrics import roc_auc_score
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 from sklearn.ensemble import IsolationForest
 from tqdm import tqdm
@@ -116,6 +120,43 @@ def patch_encoded_hospital_files_together(path_to_dir):
 
 	return full_set
 
+def get_most_important_features(x_data, y_data, num_features_to_use, plotpath, targetlabelname):
+
+	skl_model = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42, max_samples=.8)
+	# skl_model = LogisticRegressionCV(Cs=10, cv=5, solver='lbfgs', max_iter=10000, n_jobs=-1, multi_class='auto', random_state=42)
+	skl_model.fit(x_data, y_data)
+
+	sklmodel_sorted_idx = np.argsort(skl_model.feature_importances_)[-num_features_to_use:]
+	# sklmodel_sorted_idx = np.argsort(skl_model.coef_)[-num_features_to_use:]
+
+	plt.figure(figsize=(20,30))
+	plt.barh(
+		np.arange(0, len(sklmodel_sorted_idx)), 
+		skl_model.feature_importances_[sklmodel_sorted_idx], 
+		height=0.7)
+	plt.yticks(np.arange(len(x_data.keys()[sklmodel_sorted_idx])), x_data.keys()[sklmodel_sorted_idx])
+	plt.ylim((0, len(sklmodel_sorted_idx)+.5))
+	plt.grid()
+	plt.tight_layout()	
+	plt.savefig(plotpath + 'feature_importances_randomforest_' + str(targetlabelname) + '.pdf')
+	plt.close()
+
+
+	permutation_analysis = permutation_importance(skl_model, x_data, y_data, n_repeats=10, n_jobs=-1, random_state=42)
+	permutation_sorted_idx = permutation_analysis.importances_mean.argsort()[-num_features_to_use:]
+
+	plt.figure(figsize=(20,30))
+	plt.boxplot(
+		permutation_analysis.importances[permutation_sorted_idx].T, 
+		vert=False,
+		labels=x_data.keys()[permutation_sorted_idx])
+	plt.ylim((0, len(sklmodel_sorted_idx)+.5))
+	plt.grid()
+	plt.tight_layout()
+	plt.savefig(plotpath + 'feature_importances_randomforest_permutation_' + str(targetlabelname) + '.pdf')
+	plt.close()
+
+	return x_data.keys()[permutation_sorted_idx]
 
 
 
@@ -565,11 +606,14 @@ class DataProcessor():
 		print('writing files to ', self.read_path_files)
 		self.min_patients_per_client = self.args.min_patients_per_hospital
 
+		self.offset_threshold = 1000
+
 		self.add_hosp_stats_to_features = False
 
-		# self.dataframe = pd.read_csv(self.read_path).drop(columns='Unnamed: 0')
-		self.dataframe = patch_loaded_hospital_files_together(self.read_path_files)
-		self.dataframe = self.dataframe.drop(columns='Unnamed: 0')
+		try:
+			self.dataframe = pd.read_csv(self.read_path_files + 'full_loaded_set.csv')
+		except FileNotFoundError:
+			self.dataframe = patch_loaded_hospital_files_together(self.read_path_files)
 
 
 		hospital_population_table = []
@@ -587,16 +631,13 @@ class DataProcessor():
 
 		categorical_feature_names = [
 			'ethnicity',
-			'hospital_discharge_status',
+			# 'hospital_discharge_status',
 			'hospital_discharge_year',
-			'unit_discharge_status',
+			# 'unit_discharge_status',
 			'unit_admit_source',
 			'unit_type',
-			'unit_discharge_location',
+			# 'unit_discharge_location',
 			'unit_stay_type',
-			'pasthistory_notetypes'
-			# 'diagnosis_priority',
-			# 'lab_type_ids',
 			]
 
 		features_to_drop = [
@@ -618,10 +659,18 @@ class DataProcessor():
 			'drug_dosages',
 			'drug_gtc_codes',
 			################
-			'hospital_discharge_status_Alive'
-			'hospital_discharge_status_Expired'
-			'unit_discharge_status_Alive'
-			'unit_discharge_status_Expired'
+			# 'hospital_discharge_status_Alive',
+			# 'hospital_discharge_status_Expired',
+			# 'unit_discharge_status_Alive',
+			# 'unit_discharge_status_Expired',
+			'hospital_discharge_status',
+			'unit_discharge_status',
+			'unit_discharge_location',
+			'icu_admission_time',
+			'icu_discharge',
+			'hospital_admit_offset',
+			'hospital_discharge_offset',
+			'unit_discharge_offset',
 			################
 			'Unnamed: 0_x',
 			'Unnamed: 0.1_x',
@@ -636,35 +685,19 @@ class DataProcessor():
 		self.add_hospital_stats()
 		
 		self.process_pasthist_col()
-		self.process_drugs_col(100)
-		self.process_lab_col(100)
-		self.process_diag_col(100)
+		self.process_drugs_col(self.offset_threshold)
+		self.process_lab_col(self.offset_threshold)
+		self.process_diag_col(self.offset_threshold)
 
 		self.full_encoded_set = patch_encoded_hospital_files_together(self.read_path_files)
 
 		self.feature_df = pd.merge(self.feature_df, self.full_encoded_set, on='corr_id')
 
-
-
-		try:
-			self.feature_df = self.feature_df.drop(columns='Unnamed: 0_x')
-		except KeyError:
-			pass
-		try:
-			self.feature_df = self.feature_df.drop(columns='Unnamed: 0')
-		except KeyError:
-			pass
-
-		# self.make_federated_sets()
-
-		self.feature_df.to_csv(self.write_path[:-4] + '_with_DiagnosisCodes.csv')
-
+		self.feature_df.to_csv(self.write_path[:-4] + '_with_DiagnosisCodes_' + str(self.offset_threshold) + '.csv')
 		for feature_to_drop in features_to_drop:
-			try:
-				self.feature_df = self.feature_df.drop(columns=feature_to_drop)
-			except KeyError:
-				continue
-		self.feature_df.to_csv(self.write_path)
+			try: self.feature_df = self.feature_df.drop(columns=feature_to_drop)
+			except KeyError: continue
+		self.feature_df.to_csv(self.write_path[:-4] + '_' + str(self.offset_threshold) + '.csv')
 
 
 	def process_array_cols(self, col_names):
@@ -813,7 +846,7 @@ class DataProcessor():
 	def process_diag_col(self, diag_offset_threshold):
 
 		for hospital_id_dummy in self.loaded_hospital_ids:
-			print('\nprocessing columns for hospital ', hospital_id_dummy)
+			print('processing diagnosis data for hospital ', hospital_id_dummy)
 
 			dummy_hospital_df = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
 		
@@ -837,12 +870,14 @@ class DataProcessor():
 				if ' nan nan]' in splitted_icd9_codes: splitted_icd9_codes.remove(' nan nan]')
 				if ' nan nan\n ' in splitted_icd9_codes: splitted_icd9_codes.remove(' nan nan\n ')
 
-				splitted_icd9_offsets = [f for f in splitted_icd9_offsets if len(f) > 1]
+				if len(splitted_icd9_offsets) > 1:
+					splitted_icd9_offsets = [f for f in splitted_icd9_offsets if len(f) >= 1]
 				if splitted_icd9_offsets[0][0] == '[':
 					splitted_icd9_offsets[0] = splitted_icd9_offsets[0][1:]
 				if splitted_icd9_offsets[-1][-1] == ']':
 					splitted_icd9_offsets[-1] = splitted_icd9_offsets[-1][:-1]
-				splitted_icd9_offsets = [int(f) for f in splitted_icd9_offsets]
+				if len(splitted_icd9_offsets) > 1:
+					splitted_icd9_offsets = [int(f) for f in splitted_icd9_offsets]
 
 				for dummy in splitted_icd9_codes:
 					if len(dummy) < 4:
@@ -893,10 +928,16 @@ class DataProcessor():
 				if not icd10tabledummy.empty:
 					splitted_icd9_codes = icd10tabledummy['icd10code_full'].values
 
-					if len(splitted_icd9_codes) == len(splitted_icd9_offsets):
-						splitted_icd9_codes = splitted_icd9_codes[np.asarray(splitted_icd9_offsets) < diag_offset_threshold]
-						dummy_hospital_df['diagnosis_ICD9code'].iloc[row] = splitted_icd9_codes				
+					# print(np.asarray(splitted_icd9_offsets) < diag_offset_threshold)
 
+					if len(splitted_icd9_codes) == len(splitted_icd9_offsets):
+						# splitted_icd9_codes = splitted_icd9_codes[np.asarray(splitted_icd9_offsets) < diag_offset_threshold]
+						splitted_icd9_codes_dummy = []
+						for j in range(len(splitted_icd9_offsets)):
+							if float(splitted_icd9_offsets[j]) < diag_offset_threshold:
+								splitted_icd9_codes_dummy.append(splitted_icd9_codes[j])
+						splitted_icd9_codes = splitted_icd9_codes_dummy
+						dummy_hospital_df['diagnosis_ICD9code'].iloc[row] = splitted_icd9_codes				
 					else:
 						dummy_hospital_df['diagnosis_ICD9code'].iloc[row] = [0]
 
@@ -928,7 +969,7 @@ class DataProcessor():
 	def process_lab_col(self, lab_offset_threshold):
 
 		for hospital_id_dummy in self.loaded_hospital_ids:
-			print('\nprocessing columns for hospital ', hospital_id_dummy)
+			print('processing lab data for hospital ', hospital_id_dummy)
 
 			dummy_hospital_df = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
 		
@@ -962,26 +1003,47 @@ class DataProcessor():
 				if ' nan nan\n ' in splitted_lab_names: splitted_lab_names.remove(' nan nan\n ')
 
 
-				splitted_lab_offsets = [f for f in splitted_lab_offsets if len(f) > 1]
-				if splitted_lab_offsets[0][0] == '[':
-					splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
-				if splitted_lab_offsets[0][0] == '<':
-					splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
-				if splitted_lab_offsets[0][0] == '>':
-					splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
-				if splitted_lab_offsets[-1][-1] == ']':
-					splitted_lab_offsets[-1] = splitted_lab_offsets[-1][:-1]
-				splitted_lab_offsets = [int(f) for f in splitted_lab_offsets]
+				if len(splitted_lab_offsets) > 1:
+					splitted_lab_offsets = [f for f in splitted_lab_offsets if len(f) > 1]
+					if splitted_lab_offsets[0][0] == '[':
+						splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
+					if splitted_lab_offsets[0][0] == '<':
+						splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
+					if splitted_lab_offsets[0][0] == '>':
+						splitted_lab_offsets[0] = splitted_lab_offsets[0][1:]
+					if splitted_lab_offsets[-1][-1] == ']':
+						splitted_lab_offsets[-1] = splitted_lab_offsets[-1][:-1]
 
-				splitted_lab_values = [f for f in splitted_lab_values if f not in ['\n', '\n ', ' ']]
+					splitted_lab_offsets = [int(f) for f in splitted_lab_offsets if f not in ['\n', '\n ', ' ', '...', ' ... ']]
 
-				splitted_dummy = []
-				for ddd in splitted_lab_values:
-					if ddd[0] in ['>', '<']:
-						splitted_dummy.append(ddd[1:])
-					else:
-						splitted_dummy.append(ddd)
-				splitted_lab_values = splitted_dummy
+				if len(splitted_lab_values) > 1:
+					splitted_lab_values = [f for f in splitted_lab_values if f not in ['\n', '\n ', ' ', '...', ' ... ']]
+
+				splitoffsetarray = []
+				for splitoffset in splitted_lab_offsets:
+					if str(splitoffset)[0] == '[':
+						splitoffset = str(splitoffset)[1:]
+					if str(splitoffset)[0] in ['>', '<']:
+						splitoffset = str(splitoffset)[1:]
+					if str(splitoffset)[-1] == ']':
+						splitoffset = str(splitoffset)[:-1]
+					splitoffsetarray.append(int(splitoffset))
+				splitted_lab_offsets = np.asarray(splitoffsetarray)
+
+				splitvaluearray = []
+				for splitvalue in splitted_lab_values:
+					if str(splitvalue)[0] == '[':
+						splitvalue = str(splitvalue)[1:]
+					if str(splitvalue)[0] in ['>', '<']:
+						splitvalue = str(splitvalue)[1:]
+					if str(splitvalue)[-1] == ' ':
+						splitvalue = str(splitvalue)[:-1]
+					if str(splitvalue)[-1] == ']':
+						splitvalue = str(splitvalue)[:-1]
+					if str(splitvalue)[-1] == '%':
+						splitvalue = str(splitvalue)[:-1]
+					splitvaluearray.append(float(splitvalue))
+				splitted_lab_values = np.asarray(splitvaluearray)
 
 
 				for dummy in splitted_lab_names:
@@ -1012,7 +1074,7 @@ class DataProcessor():
 
 						lab_name_dummies = labtabledummy['lab_name'].values
 						lab_value_dummies = labtabledummy['lab_value'].values
-						lab_offset_dummies = labtabledummy['lab_offset'].values
+						lab_offset_dummies = labtabledummy['lab_offset'].astype(int).values
 
 						lab_name_dummies = lab_name_dummies[np.asarray(lab_offset_dummies) < lab_offset_threshold]
 						lab_value_dummies = lab_value_dummies[np.asarray(lab_offset_dummies) < lab_offset_threshold]
@@ -1043,8 +1105,8 @@ class DataProcessor():
 
 			dummy_df = pd.DataFrame(dummy_df)
 
-			if '0' in dummy_df.keys():
-				dummy_df = dummy_df.drop(columns='0')
+			# if '0' in dummy_df.keys():
+			# 	dummy_df = dummy_df.drop(columns='0')
 
 
 			hospital_lab_table_file = []
@@ -1077,7 +1139,7 @@ class DataProcessor():
 	def process_drugs_col(self, lab_offset_threshold):
 
 		for hospital_id_dummy in self.loaded_hospital_ids:
-			print('\nprocessing columns for hospital ', hospital_id_dummy)
+			print('processing drug data for hospital ', hospital_id_dummy)
 
 			dummy_hospital_df = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
 		
@@ -1183,7 +1245,7 @@ class DataProcessor():
 	def process_pasthist_col(self):
 
 		for hospital_id_dummy in self.loaded_hospital_ids:
-			print('\nprocessing columns for hospital ', hospital_id_dummy)
+			print('processing pasthistory data for hospital ', hospital_id_dummy)
 
 			dummy_hospital_df = self.dataframe[self.dataframe['hospital_id'] == hospital_id_dummy]
 		
@@ -1969,83 +2031,50 @@ class DataManager():
 			self.target_features = self.args.target_label
 			self.train_split = self.args.train_split
 			self.split_strategy = self.args.split_strategy
+			self.mydata_path_files = self.args.mydata_path_files
 		except AttributeError:
 			self.process_data_path = self.args['mydata_path_processed']
 			self.target_features = self.args['target_label']
 			self.train_split = self.args['train_split']
 			self.split_strategy = self.args['split_strategy']
+			self.mydata_path_files = self.args['mydata_path_files']
 
 
 		self.scaler_lo_icu = RobustScaler()
 		self.scaler_lo_hospital = RobustScaler()
 		self.scaler_features = RobustScaler()
 
-		self.data_df = pd.read_csv(self.process_data_path).drop(columns='Unnamed: 0')
-		self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0].fillna(0.)
+		data_files = [f for f in os.listdir(self.mydata_path_files) if f.startswith('processed_featureset_')]
+
+		self.data_df = pd.read_csv(self.mydata_path_files + data_files[0])
+		# self.data_df = self.data_df.loc[self.data_df['unit_discharge_offset'] != 0].fillna(0.)
+		self.data_df = self.data_df.fillna(0.)
 
 		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] > 1000.] = 1000.
 		self.data_df['length_of_icu'].loc[self.data_df['length_of_icu'] < 1.] = 1.
 		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] > 5000.] = 5000.
 		self.data_df['length_of_stay'].loc[self.data_df['length_of_stay'] < 1.] = 1.
 
+		for uselesscol in ['Unnamed: 0.1', 'Unnamed: 0']:
+			try:
+				self.data_df = self.data_df.drop(columns=uselesscol)
+			except KeyError:
+				continue
 
-		# self.data_df = self.data_df.loc[self.data_df['num_patients'] >= self.args.min_patients_per_hospital]
 
 		self.label_cols = [
-			# doesnt make sense to include or not properly formatted cols
 			'patient_id',
 			'health_system_id',
 			'corr_id',
-			# 'data_set_ref',
-			# 'medication_ids',
-			# 'drug_strings_prescribed',
-			# 'drug_codes_prescribed',
-			# 'diagnosis_string',
-			# 'pasthistory_notetypes',
-			# 'pasthistory_values',
-			'hospital_discharge_year_2014',
-			'hospital_discharge_year_2015',
-			# labels we want to predict or shouldnt be available for our predictions
 			'length_of_stay',
-			'icu_admission_time',
 			'length_of_icu',
-			'icu_discharge',
-			'diagnosis_offset',
-			'diagnosis_activeUponDischarge',
-			# 'diagnosis_ids',
-			# 'diagnosis_priority',
-			'diagnosis_ICD9code',
-			'unit_discharge_offset',
-			'unit_discharge_status_Alive',
-			'unit_discharge_status_Expired',
-			'unit_discharge_location_Death',
-			'unit_discharge_location_Floor',
-			'unit_discharge_location_Home',
-			# 'unit_discharge_location_Other',
-			'unit_discharge_location_Other External',
-			'unit_discharge_location_Other Hospital',
-			'unit_discharge_location_Other ICU',
-			# 'unit_discharge_location_Rehabilitation',
-			'unit_discharge_location_Skilled Nursing Facility',
-			'unit_discharge_location_Step-Down Unit (SDU)',
-			# 'unit_discharge_location_Telemetry',
-			'unit_stay_type_admit',
-			'unit_stay_type_readmit',
-			'unit_stay_type_stepdown/other',
-			'unit_stay_type_transfer',
-			'hospital_discharge_offset',
-			'hospital_discharge_status',
-			'hospital_discharge_status_Alive',
-			'hospital_discharge_status_Expired',
 			'will_return',
 			'will_die',
 			'will_readmit',
 			'will_stay_long',
-			'visits_current_stay',
-			'unit_readmission',
 			'survive_current_icu',
-			# 'lab_type_ids',
-			# 'lab_names',
+			'visits_current_stay',
+			# 'hospital_id',
 			]
 
 		self.data_container, self.sampling_df = self.get_data()
@@ -2059,6 +2088,10 @@ class DataManager():
 
 		# feature_map = self.data_df.drop(columns = self.label_cols).fillna(0.)
 		feature_map = self.data_df.copy()
+
+		# feature_map = pd.get_dummies(feature_map, columns='hospital_id')
+
+
 		for labelcol in self.label_cols:
 			try:
 				feature_map = feature_map.drop(columns = labelcol)
@@ -2066,10 +2099,15 @@ class DataManager():
 				continue
 		feature_map = feature_map.fillna(0.).astype(float)
 
-		self.scaler_features.fit(feature_map)
+		features_to_scale = []
+		for feat in feature_map.keys().values:
+			if feature_map[feat].nunique() > 2 and feat != 'hospital_id':
+				features_to_scale.append(feat)
+		feature_map[features_to_scale] = self.scaler_features.fit_transform(feature_map[features_to_scale])
+		# self.scaler_features.fit(feature_map)
 
-		# y_full = np.nan_to_num(self.data_df[self.target_features].values)
 		y_full = self.data_df[self.target_features]
+
 
 		train_ids, val_ids, test_ids = [], [], []
 		train_idx, val_idx, test_idx = [], [], []
@@ -2082,12 +2120,6 @@ class DataManager():
 
 			hospital_dummy_df = self.data_df[['hospital_id', 'patient_id', 'corr_id']].loc[self.data_df['hospital_id'] == hosp_id]
 			
-			# train_frac, val_frac, test_frac = np.split(
-			# 	hospital_dummy_df['corr_id'].sample(frac=1.), 
-			# 	[
-			# 	int(self.train_split*np.asarray(hospital_dummy_df).shape[0]), 
-			# 	int((1-(.5*(1-self.train_split)))*np.asarray(hospital_dummy_df).shape[0])
-			# 	])
 			train_frac, val_frac, test_frac = np.split(
 				hospital_dummy_df['patient_id'].sample(frac=1.), 
 				[
@@ -2114,12 +2146,6 @@ class DataManager():
 
 		for i in range(self.data_df.shape[0]):
 
-			# if self.data_df['corr_id'].iloc[i] in train_ids:
-			# 	train_idx.append(i)
-			# if self.data_df['corr_id'].iloc[i] in val_ids:
-			# 	val_idx.append(i)
-			# if self.data_df['corr_id'].iloc[i] in test_ids:
-			# 	test_idx.append(i)
 
 			if self.data_df['patient_id'].iloc[i] in train_ids:
 				train_idx.append(i)
@@ -2139,6 +2165,22 @@ class DataManager():
 		y_train = y_full.iloc[train_idx]
 		y_val = y_full.iloc[val_idx]
 		y_test = y_full.iloc[test_idx]
+
+
+		best_features = get_most_important_features(x_train, y_train, 100, self.mydata_path_files, self.target_features)
+		feature_map = feature_map[best_features]
+		x_train = x_train[best_features]
+		x_val = x_val[best_features]
+		x_test = x_test[best_features]
+
+
+		print('\n\ntesting out RandomForests:')
+		RandomForest = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42, max_samples=.8)
+		RandomForest.fit(x_train, y_train)
+		rf_y_val = RandomForest.predict_proba(x_val)
+		rf_y_test = RandomForest.predict_proba(x_test)
+		print('roc'.ljust(15,'.'), roc_auc_score(y_val, np.asarray(rf_y_val)[:,0]), ' / ', roc_auc_score(y_test, np.asarray(rf_y_test)[:,0]))
+		print('accuracy'.ljust(15,'.'), RandomForest.score(x_val, y_val), ' / ', RandomForest.score(x_test, y_test), '\n')
 
 
 		number_y_total = len(y_train)
@@ -2273,42 +2315,42 @@ class DataManager():
 
 	def get_full_train_data(self):
 
-		return self.scaler_features.transform(self.data_container['x_train'].values), np.reshape(self.data_container['y_train'].values, (-1,1))
+		return self.data_container['x_train'].values, np.reshape(self.data_container['y_train'].values, (-1,1))
 
 	def get_full_val_data(self):
 
-		return self.scaler_features.transform(self.data_container['x_val'].values), np.reshape(self.data_container['y_val'].values, (-1,1))
+		return self.data_container['x_val'].values, np.reshape(self.data_container['y_val'].values, (-1,1))
 
 	def get_full_test_data(self):
 
-		return self.scaler_features.transform(self.data_container['x_test'].values), np.reshape(self.data_container['y_test'].values, (-1,1))
+		return self.data_container['x_test'].values, np.reshape(self.data_container['y_test'].values, (-1,1))
 
 	def get_full_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
 
-		return self.scaler_features.transform(np.asarray(x_dummy)), np.reshape(np.asarray(y_dummy), (-1,1))
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_train_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
 
-		return self.scaler_features.transform(np.asarray(x_dummy)), np.reshape(np.asarray(y_dummy), (-1,1))
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_test_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
 
-		return self.scaler_features.transform(np.asarray(x_dummy)), np.reshape(np.asarray(y_dummy), (-1,1))
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_val_data_from_hopital(self, hospital_id):
 
 		x_dummy = self.data_container['x_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
 		y_dummy = self.data_container['y_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
 
-		return self.scaler_features.transform(np.asarray(x_dummy)), np.reshape(np.asarray(y_dummy), (-1,1))
+		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 

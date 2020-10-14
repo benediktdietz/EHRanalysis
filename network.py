@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, IterableDataset, DataLoader
 import torch.optim
+# from federated_utils import ClassificationNN
 
 
 class RegressionNN(nn.Module):
@@ -309,7 +310,6 @@ class NetworkTrainer():
 
 			if self.task == 'regression':
 				
-
 				# y_true = np.ravel(np.reshape(y_true, (-1,1)))
 				# predictions = np.ravel(np.reshape(predictions, (-1,1)))
 
@@ -762,7 +762,7 @@ class NetworkTrainer():
 							F.mse_loss(
 								torch.reshape(output, (1,-1)), 
 								torch.reshape(local_labels.type(torch.float)[0,:], (1,-1)),
-								reduction = 'sum')
+								reduction = 'mean')
 							))
 
 

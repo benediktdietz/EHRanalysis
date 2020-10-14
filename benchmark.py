@@ -21,40 +21,49 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 import syft as sy
-from federated_utils import ClassificationNN, get_data_from_DataManager
+from federated_utils import ClassificationNN, RegressionNN, get_data_from_DataManager, SmallClassificationNN
 from torch.utils.data import TensorDataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 # Hospital packages
 from data_management_new import eICU_DataLoader, DataProcessor, DataSetIterator, DataManager
 
+FOLDER = 'mydata4_2'
+
 args = {
 	# 'mydata_path_processed' : '../mydata/nomeds_20k_processed.csv',
-    'mydata_path_processed' : '../mysmalltestdata/processed_featureset.csv',
+    'mydata_path_processed' : '../' + FOLDER +'/processed_featureset.csv',
+    'mydata_path_files' : '../' + FOLDER +'/',
     'datapath_processed' : '../mysmalltestdata/processed_featureset.csv',
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/benchmark_7_10_6/',
+	'OUTPATH' : '../results/benchmark_14_10_11_small_1000/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
 	'client_ids' : "all", # or 'all' to load all client from the federated_path
 	'n_clients' : 10,
 	'use_cuda' : False,
-	'batch_size' : 128,
+	'batch_size' : 512,
 	'test_batch_size' : 1000,
-	'lr' : 0.001,
+	'lr' : 0.000001,
 	'log_interval' : 200,
-	'epochs' : 200,
+	'epochs' : 10000,
 	'task' : 'classification',
 	# 'predictive_attributes' : ["length_of_stay", "will_die"],
 	# 'target_attributes' : ["will_die"],
-	'target_label' : "survive_current_icu",
+	'target_label' : "will_die",
 	'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
 	# 'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
-	'test_hospital_id' : 73 #'trainNminus1_test1'
+	'test_hospital_id' : 73, #'trainNminus1_test1'
+	'simple_model' : 1, #'trainNminus1_test1'
 }
 
+
+if args['target_label'] in ['length_of_stay', 'length_of_icu']:
+	regression = True
+else:
+	regression = False
 
 datapath_processed = args["datapath_processed"]
 federated_path = args["federated_path"]
@@ -72,6 +81,7 @@ device = torch.device("cuda" if use_cuda else "cpu")
 try:
 	os.makedirs(args['OUTPATH'] + args['target_label'] + '/')
 	os.makedirs(args['OUTPATH'] + args['target_label'] + '/roc/')
+	os.makedirs(args['OUTPATH'] + args['target_label'] + '/predictions/')
 	os.makedirs(args['OUTPATH'] + args['target_label'] + '/tensorboard/')
 except FileExistsError: pass
 
@@ -99,7 +109,7 @@ if args['split_strategy'] == 'trainNminus1_test1':
 x_pt = torch.tensor(x, dtype=torch.float32) # transform to torch tensor
 y_pt = torch.tensor(y.squeeze(), dtype=torch.long)
 my_dataset = TensorDataset(x_pt, y_pt) # create your datset
-train_loader = DataLoader(my_dataset, batch_size=10) # create your dataloader
+train_loader = DataLoader(my_dataset, batch_size=args['batch_size']) # create your dataloader
 
 # Load test data
 if args['split_strategy'] == 'trainN_testN':
@@ -109,7 +119,7 @@ if args['split_strategy'] == 'trainNminus1_test1':
 x_pt = torch.tensor(x, dtype=torch.float32) # transform to torch tensor
 y_pt = torch.tensor(y.squeeze(), dtype=torch.long)
 my_dataset = TensorDataset(x_pt, y_pt) # create your datset
-test_loader = DataLoader(my_dataset, batch_size=10) # create your dataloader
+test_loader = DataLoader(my_dataset, batch_size=args['batch_size']) # create your dataloader
 
 # Load validation data
 if args['split_strategy'] == 'trainN_testN':
@@ -119,15 +129,25 @@ if args['split_strategy'] == 'trainNminus1_test1':
 x_pt = torch.tensor(x, dtype=torch.float32) # transform to torch tensor
 y_pt = torch.tensor(y.squeeze(), dtype=torch.long)
 my_dataset = TensorDataset(x_pt, y_pt) # create your datset
-validation_loader = DataLoader(my_dataset, batch_size=10) # create your dataloader
+validation_loader = DataLoader(my_dataset, batch_size=args['batch_size']) # create your dataloader
 
 # Build the model and optimizer
 logging.info("Build the client model")
 input_dim = x.shape[1]
 output_dim = y.shape[1]
-model = ClassificationNN(input_dim)
+
+if regression:
+	model = RegressionNN(input_dim)
+else:
+	if args['simple_model']:
+		model = SmallClassificationNN(input_dim)
+	else:
+		model = ClassificationNN(input_dim)
+
 model.to(device)
-optimizer = optim.SGD(model.parameters(), lr=args['lr'])
+
+# optimizer = optim.SGD(model.parameters(), lr=args['lr'])
+optimizer = optim.Adam(model.parameters(), lr=args['lr'])
 
 
 roc_df = []
@@ -138,6 +158,7 @@ cross_entropy_loss = nn.CrossEntropyLoss()
 def train(args, model, device, train_loader, optimizer, epoch):
 	model.train()
 
+	fully_connected_weight_grad = 0.
 	fully_connected_0_weight_grad = 0.
 	fully_connected_1_weight_grad = 0.
 	fully_connected_2_weight_grad = 0.
@@ -153,34 +174,46 @@ def train(args, model, device, train_loader, optimizer, epoch):
 
 		# loss = F.nll_loss(output, target)
 		# loss = F.binary_cross_entropy(output.type(torch.long), torch.cat((target, 1.-target)).type(torch.long))
-		loss = cross_entropy_loss(output, target)
+		# loss = cross_entropy_loss(output, target)
+
+		if regression:
+			loss = torch.mean(F.mse_loss(torch.reshape(output.type(torch.float), (-1,)), target.type(torch.float), reduction = 'mean'))
+		else:
+			loss = cross_entropy_loss(output, target)
+
 		loss.backward()
 
 		optimizer.step()
 
-		fully_connected_0_weight_grad += torch.mean(torch.abs(model.fully_connected_0.weight.grad))
-		fully_connected_1_weight_grad += torch.mean(torch.abs(model.fully_connected_1.weight.grad))
-		fully_connected_2_weight_grad += torch.mean(torch.abs(model.fully_connected_2.weight.grad))
-		fully_connected_3_weight_grad += torch.mean(torch.abs(model.fully_connected_3.weight.grad))
-		fully_connected_final_weight_grad += torch.mean(torch.abs(model.fully_connected_final.weight.grad))
+		if args['simple_model']:
+			fully_connected_weight_grad += torch.mean(torch.abs(model.fully_connected.weight.grad))
+		else:
+			fully_connected_0_weight_grad += torch.mean(torch.abs(model.fully_connected_0.weight.grad))
+			fully_connected_1_weight_grad += torch.mean(torch.abs(model.fully_connected_1.weight.grad))
+			fully_connected_2_weight_grad += torch.mean(torch.abs(model.fully_connected_2.weight.grad))
+			fully_connected_3_weight_grad += torch.mean(torch.abs(model.fully_connected_3.weight.grad))
+			fully_connected_final_weight_grad += torch.mean(torch.abs(model.fully_connected_final.weight.grad))
 
 
-		if batch_idx % args['log_interval'] == 0:
+		# if batch_idx % args['log_interval'] == 0:
 
-			print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-					epoch,
-					batch_idx * args['batch_size'], # no of images done
-					len(train_loader) * args['batch_size'], # total images left
-					100. * batch_idx / len(train_loader), 
-					loss.item()
-				)
-			)
+		# 	print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+		# 			epoch,
+		# 			batch_idx * args['batch_size'], # no of images done
+		# 			len(train_loader) * args['batch_size'], # total images left
+		# 			100. * batch_idx / len(train_loader), 
+		# 			loss.item()
+		# 		)
+		# 	)
 
-	summary_writer.add_scalar('gradients_weights/linear_0', fully_connected_0_weight_grad/len(train_loader), epoch)
-	summary_writer.add_scalar('gradients_weights/linear_1', fully_connected_1_weight_grad/len(train_loader), epoch)
-	summary_writer.add_scalar('gradients_weights/linear_2', fully_connected_2_weight_grad/len(train_loader), epoch)
-	summary_writer.add_scalar('gradients_weights/linear_3', fully_connected_3_weight_grad/len(train_loader), epoch)
-	summary_writer.add_scalar('gradients_weights/linear_final', fully_connected_final_weight_grad/len(train_loader), epoch)
+	if args['simple_model']:
+		summary_writer.add_scalar('gradients_weights/linear', fully_connected_weight_grad/len(train_loader), epoch)
+	else:
+		summary_writer.add_scalar('gradients_weights/linear_0', fully_connected_0_weight_grad/len(train_loader), epoch)
+		summary_writer.add_scalar('gradients_weights/linear_1', fully_connected_1_weight_grad/len(train_loader), epoch)
+		summary_writer.add_scalar('gradients_weights/linear_2', fully_connected_2_weight_grad/len(train_loader), epoch)
+		summary_writer.add_scalar('gradients_weights/linear_3', fully_connected_3_weight_grad/len(train_loader), epoch)
+		summary_writer.add_scalar('gradients_weights/linear_final', fully_connected_final_weight_grad/len(train_loader), epoch)
 
 
 def test(model, device, test_loader, epoch, roc_df):
@@ -197,33 +230,53 @@ def test(model, device, test_loader, epoch, roc_df):
 
 			# add losses together
 			# test_loss += F.nll_loss(output, target, reduction='sum').item() 
-			test_loss += cross_entropy_loss(output, target).item() 
+			# test_loss += cross_entropy_loss(output, target).item() 
 
-			# get the index of the max probability class
-			pred = output.argmax(dim=1, keepdim=True)  
-			correct += pred.eq(target.view_as(pred)).sum().item()
+			if regression:
+				test_loss += torch.mean(F.mse_loss(torch.reshape(output.type(torch.float), (-1,)), target.type(torch.float), reduction = 'mean'))
 
-			if dummy == 0:
-				preds_bin = np.reshape(pred.numpy(), (-1))
-				preds = np.reshape(softmax(output).numpy()[:,1], (-1))
-				labels = np.reshape(target.numpy(), (-1))
-				dummy += 1
+				# get the index of the max probability class
+				pred = output.argmax(dim=1, keepdim=True)  
+				correct += pred.eq(target.view_as(pred)).sum().item()
+
+				if dummy == 0:
+					preds = np.reshape(output, (-1))
+					labels = np.reshape(target.numpy(), (-1))
+					dummy += 1
+				else:
+					preds = np.concatenate((preds, np.reshape(output, (-1))), axis=0)
+					labels = np.concatenate((labels, np.reshape(target.numpy(), (-1))), axis=0)
+
 			else:
-				preds_bin = np.concatenate((preds_bin, np.reshape(pred.numpy(), (-1))), axis=0)
-				preds = np.concatenate((preds, np.reshape(softmax(output).numpy()[:,1], (-1))), axis=0)
-				labels = np.concatenate((labels, np.reshape(target.numpy(), (-1))), axis=0)
+				test_loss += cross_entropy_loss(output, target).item() 
+
+				# get the index of the max probability class
+				pred = output.argmax(dim=1, keepdim=True)  
+				correct += pred.eq(target.view_as(pred)).sum().item()
+
+				if dummy == 0:
+					preds_bin = np.reshape(pred.numpy(), (-1))
+					preds = np.reshape(softmax(output).numpy()[:,1], (-1))
+					labels = np.reshape(target.numpy(), (-1))
+					dummy += 1
+				else:
+					preds_bin = np.concatenate((preds_bin, np.reshape(pred.numpy(), (-1))), axis=0)
+					preds = np.concatenate((preds, np.reshape(softmax(output).numpy()[:,1], (-1))), axis=0)
+					labels = np.concatenate((labels, np.reshape(target.numpy(), (-1))), axis=0)
 
 	# if args['split_strategy'] != 'trainNminus1_test1':
 	test_loss /= len(test_loader.dataset)
 
 	summary_writer.add_scalar('loss/test_loss', test_loss, epoch)
-
-	preds_bin = np.reshape(preds_bin, (-1))
+		
 	preds = np.reshape(preds, (-1))
 	labels = np.reshape(labels, (-1))
 
-
-	roc_df = evaluate(labels, preds, preds_bin, test_loss, epoch, roc_df)
+	if regression:
+		roc_df = evaluate_regression(labels, preds, test_loss, epoch, roc_df)
+	if not regression:
+		preds_bin = np.reshape(preds_bin, (-1))
+		roc_df = evaluate(labels, preds, preds_bin, test_loss, epoch, roc_df)
 
 	print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
 		test_loss, correct, len(test_loader.dataset),
@@ -280,7 +333,7 @@ def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_cou
 
 	roc_df.append({
 		'epoch': epoch_counter_train,
-		# 'train_loss': np.round(self.last_train_epoch_loss, 5),
+		# 'train_loss': np.round(last_train_epoch_loss, 5),
 		'val_loss': np.round(validation_loss, 5),
 		'auroc': np.round(100*roc_auc, 2),
 		'recall': np.round(100*recall, 2),
@@ -368,6 +421,112 @@ def evaluate(y_true, predictions, predictions_binary, validation_loss, epoch_cou
 
 	return roc_df
 
+def evaluate_regression(y_true, predictions, validation_loss, epoch_counter_train, roc_df):
+	
+	# y_true = np.ravel(np.reshape(y_true, (-1,1)))
+	# predictions = np.ravel(np.reshape(predictions, (-1,1)))
+
+	y_true = np.nan_to_num(y_true)
+	predictions = np.nan_to_num(predictions)
+
+	mse = mean_squared_error(y_true, predictions)
+	r2 = r2_score(y_true, predictions)
+	mae = mean_absolute_error(y_true, predictions)
+	error_var = np.var(np.abs(y_true - predictions))
+	explained_var = explained_variance_score(y_true, predictions)
+
+	if r2 < 0.: r2 = 0.
+	if explained_var < 0.: explained_var = 0.
+
+
+	roc_df.append({
+		'epoch': epoch_counter_train,
+		# 'train_loss': np.round(last_train_epoch_loss, 5),
+		'val_loss': np.round(validation_loss, 5),
+		'mse': np.round(mse, 2),
+		'r2': np.round(r2, 2),
+		'mae': np.round(mae, 2),
+		'error_var': np.round(error_var, 2),
+		'explained_var': np.round(explained_var, 2),
+		})
+
+	print(pd.DataFrame(roc_df))
+	pd.DataFrame(roc_df).to_csv(args['OUTPATH'] + 'result_df.csv')
+
+	summary_writer.add_scalar('performance/mse', mse, epoch)
+	summary_writer.add_scalar('performance/r2', r2, epoch)
+	summary_writer.add_scalar('performance/mae', mae, epoch)
+	summary_writer.add_scalar('performance/error_var', error_var, epoch)
+	summary_writer.add_scalar('performance/explained_var', explained_var, epoch)
+
+
+	plt.figure(figsize=(12,12))
+	plt.title('epoch ' + str(epoch_counter_train) + ' | mae ' + str(np.round(mae, 2)) + ' | r2 ' + str(np.round(r2, 2)))
+	plt.scatter(y_true, predictions, c='darkgreen', s=16, alpha=.4)
+	plt.xscale('log')
+	plt.yscale('log')
+	if args['target_label'] == 'length_of_icu':
+		plt.xlim(1., 1000.)
+		plt.ylim(1., 1000.)
+	if args['target_label'] == 'length_of_stay':
+		plt.xlim(1., 2000.)
+		plt.ylim(1., 2000.)
+	plt.grid(which='both')
+	plt.xlabel('Labels [hours spent in ICU]')
+	plt.ylabel('Predictions [hours spent in ICU]')
+	plt.savefig(args['OUTPATH'] + args['target_label'] + '/predictions/' + 'epoch_' + str(epoch_counter_train) + '.pdf')
+	plt.close()
+
+	performance_x_vec = np.linspace(0, epoch_counter_train, len(pd.DataFrame(roc_df)))
+
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['mse'], c='darkgreen', label='mse', linewidth=4, alpha=.6)
+	plt.yscale('log')
+	plt.xlabel('epochs')
+	plt.ylabel('MSE Loss')
+	plt.title('Mean Squared Error')
+	plt.ylim(1e2,1e5)
+	plt.grid(which='both')
+	plt.legend()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + 'mse.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['r2'], c='darkgreen', label='r2', linewidth=4, alpha=.6)
+	plt.xlabel('epochs')
+	plt.ylabel('R Squared')
+	plt.title('R Squared')
+	plt.grid()
+	plt.legend()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + 'r2.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['mae'], c='darkgreen', label='mae', linewidth=4, alpha=.6)
+	plt.yscale('log')
+	plt.xlabel('epochs')
+	plt.ylabel('Mean Absolute Error [hours spent in ICU]')
+	plt.title('Mean Absolute Error')
+	plt.ylim(10.,100.)
+	plt.yscale('log')
+	plt.grid(which='both')
+	plt.legend()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + 'mae_epoch' + str(epoch_counter_train) + '.pdf')
+	plt.close()
+
+	plt.figure()
+	plt.plot(performance_x_vec, pd.DataFrame(roc_df)['explained_var'], c='darkgreen', label='explained_var', linewidth=4, alpha=.6)
+	plt.xlabel('epochs')
+	plt.ylabel('Explained Variance')
+	plt.title('Explained Variance')
+	plt.grid()
+	plt.legend()
+	plt.savefig(args['OUTPATH'] + args['target_label'] + 'explained_var.pdf')
+	plt.close()
+
+	return roc_df
+
+
 def validate(mode, validation_loader):
 	validation_loss = 0.
 	validation_label_cache, validation_prediction_cache = [], []
@@ -407,4 +566,8 @@ def validate(mode, validation_loader):
 
 for epoch in range(1, args['epochs'] + 1):
 		train(args, model, device, train_loader, optimizer, epoch)
-		roc_df = test(model, device, test_loader, epoch, roc_df)
+		if epoch % 100 == 0:
+			roc_df = test(model, device, test_loader, epoch, roc_df)
+
+
+

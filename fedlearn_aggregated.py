@@ -43,7 +43,7 @@ args = {
     'test_data_path' : '../mydata/federated/hospital_59.csv',
     'validation_data_path' : '../mydata/federated/hospital_59.csv',
     'federated_path' : '../mydata/federated',
-    'OUTPATH' : '../results/FL_aggregated_7_10_test1/',
+    'OUTPATH' : '../results/FL_aggregated_7_10_test2/',
     'train_split' : .7,
     'create_new_federated_data' : True,
     'num_of_included_patients' : 20000,
@@ -54,13 +54,13 @@ args = {
     'test_batch_size' : 1000,
     'lr' : 0.001,
     'log_interval' : 5,
-    'epochs' : 100,
+    'epochs' : 400,
     'aggregation_iters' : 100,
     'worker_iters' : 5,
     'task' : 'classification',
     'predictive_attributes' : ["length_of_stay", "will_die"],
     'target_attributes' : ["will_die"],
-    'target_label' : "will_stay_long",
+    'target_label' : "will_return",
     'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
     # 'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
     'test_hospital_id' : 73 #'trainNminus1_test1'
