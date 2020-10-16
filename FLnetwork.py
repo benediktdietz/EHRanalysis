@@ -336,22 +336,12 @@ class FederatedLearner():
 				#set local model weight to the weight of the global model
 				local_model.set_weights(global_weights)
 
-				# print('\n******************\n', self.clients_batched[client])
-
-				# #fit local model with client's data
-				# local_model.fit(self.clients_batched[client], epochs=4, verbose=1)
-
+				#fit local model with client's data
 				for local_epoch in range(4):
 
 					for features, true_labels in self.clients_batched[client]:
 					
 						local_model.fit(features, true_labels, verbose=0)
-
-						# print('\n****************************   local_epoch ' + str(local_epoch) + '\n')
-						# print(features.shape)
-						# print('\n****************************\n')
-
-
 				
 
 				#scale the model weights and add to list

@@ -122,9 +122,15 @@ def patch_encoded_hospital_files_together(path_to_dir):
 
 def get_most_important_features(x_data, y_data, num_features_to_use, plotpath, targetlabelname):
 
+	try:
+		x_data = x_data.drop(columns='hospital_id')
+	except KeyError:
+		pass
+
 	skl_model = RandomForestClassifier(n_estimators=100, n_jobs=-1, random_state=42, max_samples=.8)
 	# skl_model = LogisticRegressionCV(Cs=10, cv=5, solver='lbfgs', max_iter=10000, n_jobs=-1, multi_class='auto', random_state=42)
 	skl_model.fit(x_data, y_data)
+
 
 	sklmodel_sorted_idx = np.argsort(skl_model.feature_importances_)[-num_features_to_use:]
 	# sklmodel_sorted_idx = np.argsort(skl_model.coef_)[-num_features_to_use:]
@@ -156,7 +162,12 @@ def get_most_important_features(x_data, y_data, num_features_to_use, plotpath, t
 	plt.savefig(plotpath + 'feature_importances_randomforest_permutation_' + str(targetlabelname) + '.pdf')
 	plt.close()
 
-	return x_data.keys()[permutation_sorted_idx]
+	best_feature_list = []
+	for bestfeat in x_data.keys().values[permutation_sorted_idx]:
+		best_feature_list.append(bestfeat)
+	best_feature_list.append('hospital_id')
+
+	return best_feature_list
 
 
 
@@ -2075,6 +2086,9 @@ class DataManager():
 			'survive_current_icu',
 			'visits_current_stay',
 			# 'hospital_id',
+			'aps_intubated',
+			'aps_vent',
+			'aps_dialysis',
 			]
 
 		self.data_container, self.sampling_df = self.get_data()
@@ -2315,40 +2329,40 @@ class DataManager():
 
 	def get_full_train_data(self):
 
-		return self.data_container['x_train'].values, np.reshape(self.data_container['y_train'].values, (-1,1))
+		return self.data_container['x_train'].drop(columns='hospital_id').values, np.reshape(self.data_container['y_train'].values, (-1,1))
 
 	def get_full_val_data(self):
 
-		return self.data_container['x_val'].values, np.reshape(self.data_container['y_val'].values, (-1,1))
+		return self.data_container['x_val'].drop(columns='hospital_id').values, np.reshape(self.data_container['y_val'].values, (-1,1))
 
 	def get_full_test_data(self):
 
-		return self.data_container['x_test'].values, np.reshape(self.data_container['y_test'].values, (-1,1))
+		return self.data_container['x_test'].drop(columns='hospital_id').values, np.reshape(self.data_container['y_test'].values, (-1,1))
 
 	def get_full_data_from_hopital(self, hospital_id):
 
-		x_dummy = self.data_container['x_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
+		x_dummy = self.data_container['x_full'][self.data_container['x_full']['hospital_id'] == hospital_id].drop(columns='hospital_id').values
 		y_dummy = self.data_container['y_full'][self.data_container['x_full']['hospital_id'] == hospital_id].values
 
 		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_train_data_from_hopital(self, hospital_id):
 
-		x_dummy = self.data_container['x_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
+		x_dummy = self.data_container['x_train'][self.data_container['x_train']['hospital_id'] == hospital_id].drop(columns='hospital_id').values
 		y_dummy = self.data_container['y_train'][self.data_container['x_train']['hospital_id'] == hospital_id].values
 
 		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_test_data_from_hopital(self, hospital_id):
 
-		x_dummy = self.data_container['x_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
+		x_dummy = self.data_container['x_test'][self.data_container['x_test']['hospital_id'] == hospital_id].drop(columns='hospital_id').values
 		y_dummy = self.data_container['y_test'][self.data_container['x_test']['hospital_id'] == hospital_id].values
 
 		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))
 
 	def get_val_data_from_hopital(self, hospital_id):
 
-		x_dummy = self.data_container['x_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
+		x_dummy = self.data_container['x_val'][self.data_container['x_val']['hospital_id'] == hospital_id].drop(columns='hospital_id').values
 		y_dummy = self.data_container['y_val'][self.data_container['x_val']['hospital_id'] == hospital_id].values
 
 		return np.asarray(x_dummy), np.reshape(np.asarray(y_dummy), (-1,1))

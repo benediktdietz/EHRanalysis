@@ -37,7 +37,7 @@ args = {
 	'test_data_path' : '../mydata/federated/hospital_59.csv',
 	'validation_data_path' : '../mydata/federated/hospital_59.csv',
 	'federated_path' : '../mydata/federated',
-	'OUTPATH' : '../results/benchmark_14_10_11_small_1000/',
+	'OUTPATH' : '../results/benchmark_15_10_dialysis/',
 	'train_split' : .7,
 	'create_new_federated_data' : True,
 	'num_of_included_patients' : 20000,
@@ -52,7 +52,7 @@ args = {
 	'task' : 'classification',
 	# 'predictive_attributes' : ["length_of_stay", "will_die"],
 	# 'target_attributes' : ["will_die"],
-	'target_label' : "will_die",
+	'target_label' : "aps_dialysis",
 	'split_strategy' : 'trainN_testN', #'trainNminus1_test1'
 	# 'split_strategy' : 'trainNminus1_test1', #'trainNminus1_test1'
 	'test_hospital_id' : 73, #'trainNminus1_test1'
