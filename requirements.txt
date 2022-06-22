@@ -21,7 +21,7 @@ nest_asyncio == 1.4.0
 # EHRanalysis/fl_implemetation.py: 1
 # EHRanalysis/models.py: 2
 # EHRanalysis/network.py: 2
-numpy == 1.18.5
+numpy == 1.22.0
 
 # EHRanalysis/FLnetwork.py: 4
 # EHRanalysis/fl_implementation_utils.py: 4
